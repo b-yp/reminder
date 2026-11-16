@@ -2,6 +2,7 @@
 //! 纯 Rust 编写、完全遵循 NSH 官方设计规范与 shadcn/ui 主题系统、支持明暗主题自由切换与跟随系统、支持随意拖拽、矢量环形进度图标
 
 pub mod icons;
+pub mod logo_data;
 pub mod model;
 pub mod storage;
 pub mod theme_mode;
@@ -12,7 +13,7 @@ pub use storage::AppState;
 use std::time::Duration;
 use nsh_core::prelude::*;
 use nsh_core::element::{desktop, input, AdaptiveColor};
-use nsh_core::desktop::{WindowAttributes, WindowFrame, WindowLevel};
+use nsh_core::desktop::{WindowAttributes, WindowFrame, WindowFrameStyle, WindowLevel};
 use nsh_base::{SliderValue, slider, collapsible, theme};
 use model::ReminderItem;
 use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG};
@@ -107,6 +108,39 @@ pub fn set_native_dark_mode(dark: bool) {
 #[cfg(not(target_os = "windows"))]
 pub fn set_native_dark_mode(_dark: bool) {}
 
+/// 设置 Windows 原生窗口物理尺寸（自动适配 DPI）
+#[cfg(target_os = "windows")]
+pub fn set_native_window_size(width_pts: f32, height_pts: f32) {
+    let raw = APP_HWND.load(std::sync::atomic::Ordering::SeqCst);
+    if raw == 0 {
+        return;
+    }
+    use platform::windows::Win32::Foundation::HWND;
+    use platform::windows::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, SWP_NOMOVE, SWP_NOZORDER, SWP_NOACTIVATE, SWP_FRAMECHANGED,
+    };
+    use platform::windows::Win32::UI::HiDpi::GetDpiForWindow;
+    let hwnd = HWND(raw as *mut _);
+    unsafe {
+        let dpi = GetDpiForWindow(hwnd);
+        let scale = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
+        let w = (width_pts * scale).round() as i32;
+        let h = (height_pts * scale).round() as i32;
+        let _ = SetWindowPos(
+            hwnd,
+            None,
+            0,
+            0,
+            w,
+            h,
+            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn set_native_window_size(_width_pts: f32, _height_pts: f32) {}
+
 /// macOS 挂件专用配置：在主线程剥离窗口边框、隐藏交通灯并启用透明底色与阴影
 #[cfg(target_os = "macos")]
 fn configure_macos_window() {
@@ -153,7 +187,7 @@ fn configure_macos_window() {
 
 /// macOS 挂件专用：配置为纯净无边框悬浮卡片，移除全部系统控制按钮与标题栏非客户区，保留原生圆角与阴影
 #[cfg(target_os = "macos")]
-fn setup_floating_window(_initial_pos: Option<(i32, i32)>) {
+fn setup_floating_window(_initial_pos: Option<(i32, i32)>, _initial_size: (f32, f32)) {
     dispatch2::DispatchQueue::main().exec_async(configure_macos_window);
 
     // 在主线程启动并渲染前几个周期内再次确认配置，确保覆盖 AppKit 任何后续重置
@@ -165,14 +199,42 @@ fn setup_floating_window(_initial_pos: Option<(i32, i32)>) {
     });
 }
 
+/// 为 Windows 原生窗口设置任务栏与系统图标
+#[cfg(target_os = "windows")]
+fn apply_window_icon(hwnd: platform::windows::Win32::Foundation::HWND) {
+    use platform::windows::Win32::UI::WindowsAndMessaging::*;
+    use platform::windows::Win32::Foundation::{WPARAM, LPARAM};
+    use platform::windows::core::HSTRING;
+
+    let mut path = std::path::PathBuf::from("assets/app.ico");
+    if !path.exists() {
+        path = std::env::temp_dir().join("reminder_app.ico");
+        let _ = std::fs::write(&path, include_bytes!("../assets/app.ico"));
+    }
+    let hstr = HSTRING::from(path.as_os_str());
+    unsafe {
+        if let Ok(big) = LoadImageW(None, &hstr, IMAGE_ICON, 32, 32, LR_LOADFROMFILE) {
+            let hicon = big.0 as isize;
+            let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_BIG as usize)), Some(LPARAM(hicon)));
+            let _ = SetClassLongPtrW(hwnd, GCLP_HICON, hicon);
+        }
+        if let Ok(sm) = LoadImageW(None, &hstr, IMAGE_ICON, 16, 16, LR_LOADFROMFILE) {
+            let hicon = sm.0 as isize;
+            let _ = SendMessageW(hwnd, WM_SETICON, Some(WPARAM(ICON_SMALL as usize)), Some(LPARAM(hicon)));
+            let _ = SetClassLongPtrW(hwnd, GCLP_HICONSM, hicon);
+        }
+    }
+}
+
 /// Windows 挂件专用：配置为纯净无边框悬浮卡片，移除全部系统按钮与非客户区，保留 Win11 硬件圆角与阴影
 #[cfg(target_os = "windows")]
-fn setup_floating_window(initial_pos: Option<(i32, i32)>) {
+fn setup_floating_window(initial_pos: Option<(i32, i32)>, initial_size: (f32, f32)) {
     std::thread::spawn(move || {
         use platform::windows::Win32::Foundation::{HWND, LPARAM, COLORREF};
         use platform::windows::Win32::System::Threading::GetCurrentProcessId;
         use platform::windows::Win32::UI::WindowsAndMessaging::*;
         use platform::windows::Win32::Graphics::Dwm::*;
+        use platform::windows::Win32::UI::HiDpi::GetDpiForWindow;
         use platform::windows::core::BOOL;
 
         unsafe extern "system" fn enum_proc(hwnd: HWND, lparam: LPARAM) -> BOOL {
@@ -206,12 +268,15 @@ fn setup_floating_window(initial_pos: Option<(i32, i32)>) {
                     let popup_style = (WS_POPUP.0 | WS_VISIBLE.0 | WS_CLIPSIBLINGS.0) as i32;
                     SetWindowLongW(target_hwnd, GWL_STYLE, popup_style);
 
-                    // 2. 启用分层窗口 (WS_EX_LAYERED) 并应用当前预设透明度
+                    // 2. 启用分层窗口 (WS_EX_LAYERED) 与任务栏图标呈现 (WS_EX_APPWINDOW) 并应用当前预设透明度
                     let ex_style = GetWindowLongW(target_hwnd, GWL_EXSTYLE);
-                    SetWindowLongW(target_hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+                    SetWindowLongW(target_hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32 | WS_EX_APPWINDOW.0 as i32);
                     let percent = CURRENT_OPACITY_PERCENT.load(std::sync::atomic::Ordering::SeqCst);
                     let alpha = ((percent as f32 / 100.0) * 255.0).round() as u8;
                     let _ = SetLayeredWindowAttributes(target_hwnd, COLORREF(0), alpha, LWA_ALPHA);
+
+                    // 绑定窗口图标至任务栏
+                    apply_window_icon(target_hwnd);
 
                     // 3. 启用 Win11 原生硬件级平滑圆角与投影 (DWMWCP_ROUND = 2)
                     let round_pref: u32 = 2;
@@ -232,15 +297,20 @@ fn setup_floating_window(initial_pos: Option<(i32, i32)>) {
                         std::mem::size_of::<i32>() as u32,
                     );
 
-                    // 5. 刷新非客户区，恢复历史摆放坐标 (x, y)
+                    // 5. 计算目标物理像素尺寸 (根据当前窗口 DPI) 并刷新非客户区，恢复历史摆放坐标
+                    let dpi = GetDpiForWindow(target_hwnd);
+                    let scale = if dpi > 0 { dpi as f32 / 96.0 } else { 1.0 };
+                    let w = (initial_size.0 * scale).round() as i32;
+                    let h = (initial_size.1 * scale).round() as i32;
+
                     let (flags, x, y) = if let Some((x, y)) = initial_pos {
                         if is_position_visible(x, y) {
-                            (SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED, x, y)
+                            (SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED, x, y)
                         } else {
-                            (SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED, 0, 0)
+                            (SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED, 0, 0)
                         }
                     } else {
-                        (SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED, 0, 0)
+                        (SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED, 0, 0)
                     };
 
                     let _ = SetWindowPos(
@@ -248,10 +318,31 @@ fn setup_floating_window(initial_pos: Option<(i32, i32)>) {
                         None,
                         x,
                         y,
-                        0,
-                        0,
+                        w,
+                        h,
                         flags,
                     );
+                }
+
+                // 持续守卫：防止任何后发系统事件（如窗口获得焦点或 DWM 初始化）意外恢复 WS_CAPTION
+                for _ in 0..15 {
+                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    unsafe {
+                        let cur = GetWindowLongW(target_hwnd, GWL_STYLE);
+                        let popup_style = (WS_POPUP.0 | WS_VISIBLE.0 | WS_CLIPSIBLINGS.0) as i32;
+                        if (cur & (WS_CAPTION.0 as i32)) != 0 {
+                            SetWindowLongW(target_hwnd, GWL_STYLE, popup_style);
+                            let _ = SetWindowPos(
+                                target_hwnd,
+                                None,
+                                0,
+                                0,
+                                0,
+                                0,
+                                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                            );
+                        }
+                    }
                 }
                 break;
             }
@@ -319,11 +410,15 @@ pub const WINDOW_HEIGHT: f32 = 350.0;
 pub const MINI_WIDTH: f32 = 196.0;
 pub const MINI_HEIGHT: f32 = 44.0;
 
-/// 仅设置「置顶悬浮」层级的窗口属性
+/// 仅设置「置顶悬浮」层级的窗口属性，设置极小 min_size 防止 Win32 限制最小追踪尺寸
 /// （`WindowAttributes` 为 `non_exhaustive`，故用 Default 赋值而非结构体字面量）
 fn floating_window_attributes() -> WindowAttributes {
     let mut attributes = WindowAttributes::default();
     attributes.level = Some(WindowLevel::Floating);
+    attributes.frame = Some(WindowFrameStyle::None);
+    attributes.taskbar = Some(true);
+    attributes.shadow = Some(true);
+    attributes.min_size = Some(Some(size(px(100.0), px(36.0))));
     attributes
 }
 
@@ -388,12 +483,29 @@ pub fn App() -> impl IntoElement {
     set_native_dark_mode(initial_state.theme_mode != ThemeMode::Light);
     set_native_window_opacity(initial_state.opacity);
 
-    // 1. 挂件专用配置：在 Windows 与 macOS 上彻底剥离系统标题栏、边框与控制按钮，呈现纯净无边框悬浮卡片并恢复历史摆放位置
+    let (init_w, init_h) = if initial_state.is_mini {
+        (MINI_WIDTH, MINI_HEIGHT)
+    } else {
+        (WINDOW_WIDTH, WINDOW_HEIGHT)
+    };
+
+    // 1. 挂件专用配置：在 Windows 与 macOS 上彻底剥离系统标题栏、边框与控制按钮，呈现纯净无边框悬浮卡片并恢复历史摆放位置与目标尺寸
     #[cfg(any(target_os = "windows", target_os = "macos"))]
-    setup_floating_window(initial_state.window_pos);
+    setup_floating_window(initial_state.window_pos, (init_w, init_h));
 
     // 2. 窗口原生桌面属性：置顶悬浮 (Floating)
     desktop::main_window().set(floating_window_attributes());
+
+    // 配置 Windows / macOS 系统托盘与状态栏通知区域图标及单击唤起
+    desktop::set_tray(Some(
+        desktop::tray()
+            .icon(logo_data::APP_LOGO_DATA_URI)
+            .tooltip("reminder 提醒")
+            .on_click(|_| {
+                desktop::main_window().show();
+                desktop::main_window().focus();
+            }),
+    ));
 
     // 3. 统一标准挂件尺寸：非 Windows 平台直接由 set_bounds 设置坐标，Windows 由 setup_floating_window 恢复物理像素坐标
     #[cfg(target_os = "windows")]
@@ -404,12 +516,6 @@ pub fn App() -> impl IntoElement {
         initial_state.window_pos.map(|(_, y)| px(y as f32)),
     );
 
-    let (init_w, init_h) = if initial_state.is_mini {
-        (MINI_WIDTH, MINI_HEIGHT)
-    } else {
-        (WINDOW_WIDTH, WINDOW_HEIGHT)
-    };
-
     desktop::main_window().set_bounds(WindowFrame {
         x: frame_x,
         y: frame_y,
@@ -417,6 +523,7 @@ pub fn App() -> impl IntoElement {
         height: Some(px(init_h)),
         ..Default::default()
     });
+    set_native_window_size(init_w, init_h);
 
     // 4. 响应式状态管理（由持久化数据初始化）
     let theme_mode = signal(initial_state.theme_mode);
@@ -517,6 +624,7 @@ pub fn App() -> impl IntoElement {
             height: Some(px(MINI_HEIGHT)),
             ..Default::default()
         });
+        set_native_window_size(MINI_WIDTH, MINI_HEIGHT);
         save_app_state();
     };
 
@@ -527,6 +635,7 @@ pub fn App() -> impl IntoElement {
             height: Some(px(WINDOW_HEIGHT)),
             ..Default::default()
         });
+        set_native_window_size(WINDOW_WIDTH, WINDOW_HEIGHT);
         save_app_state();
     };
 
@@ -823,6 +932,7 @@ fn render_mini_capsule(
                 // 展开为大卡片按钮
                 .child(
                     view()
+                        .test_id("expand-mini-btn")
                         .w(px(22.0))
                         .h(px(22.0))
                         .rounded(px(5.0))
@@ -867,21 +977,11 @@ fn render_header(
                 .items_center()
                 .gap(px(8.0))
                 .child(
-                    // 金黄/暖琥珀色微标小框
-                    view()
-                        .w(px(24.0))
-                        .h(px(24.0))
+                    // App Logo 微标
+                    image(logo_data::APP_LOGO_DATA_URI)
+                        .size(px(24.0))
                         .rounded(px(6.0))
-                        .bg(ACCENT_GOLD_BG)
-                        .items_center()
-                        .justify_center()
-                        .child(
-                            icons::icon_svg(
-                                icons::ICON_BELL,
-                                13.0,
-                                ACCENT_GOLD,
-                            ),
-                        ),
+                        .object_fit(ResizeMode::Cover),
                 )
                 .child(
                     text("reminder 提醒")

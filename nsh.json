@@ -3,6 +3,7 @@
   "id": "com.example.reminder",
   "version": "1.0.0",
   "build": 1,
+  "icon": "assets/logo.png",
   "rust": ".",
   "root": "App",
   "appearance": "dark"

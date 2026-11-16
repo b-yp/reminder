@@ -5,6 +5,10 @@ import { expect, open, test } from "nsh/test";
 
 test("renders reminder app", async () => {
   const app = await open(".");
+  // If the app is currently in mini capsule mode, expand to full card
+  if (!app.texts().includes("reminder 提醒")) {
+    await app.press("id:expand-mini-btn");
+  }
   expect(app.texts()).toContain("reminder 提醒");
   expect(app.texts()).toContain("喝水");
   expect(app.texts()).toContain("起身活动");

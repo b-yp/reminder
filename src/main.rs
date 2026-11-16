@@ -21,6 +21,7 @@ fn main() -> impl std::process::Termination {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             app_id: "com.reminder.app".to_owned(),
             size: (nsh_app_reminder::WINDOW_WIDTH as i32, nsh_app_reminder::WINDOW_HEIGHT as i32),
+            icon: Some(std::path::PathBuf::from("assets/app.ico")),
             ..Default::default()
         },
     )
