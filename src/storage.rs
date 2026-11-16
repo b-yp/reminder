@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nsh_core::desktop::WindowPlacement;
 use serde::{Deserialize, Serialize};
 
 use crate::model::{init_next_id, ReminderItem};
@@ -30,9 +31,10 @@ pub struct AppState {
     pub is_mini: bool,
     #[serde(default)]
     pub is_all_paused: bool,
-    /// 窗口历史摆放物理坐标 (x, y)，开机恢复上次摆放位置
+    /// 上次的窗口摆放（NSH `WindowState::placement`，逻辑点屏幕坐标），开机恢复到同一位置；
+    /// 显示器拔插后由 `set_placement` 自动贴回可见区域
     #[serde(default)]
-    pub window_pos: Option<(i32, i32)>,
+    pub window_placement: Option<WindowPlacement>,
     /// 上次保存的时间戳（Unix 时间戳，秒），用于计算离线期间流逝的时间
     #[serde(default)]
     pub last_saved_timestamp: Option<u64>,
@@ -50,7 +52,7 @@ impl Default for AppState {
             opacity: 1.0,
             is_mini: false,
             is_all_paused: false,
-            window_pos: None,
+            window_placement: None,
             last_saved_timestamp: current_timestamp(),
         }
     }
@@ -181,14 +183,14 @@ pub fn save_state_to_path(state: &mut AppState, path: &std::path::Path) -> Resul
     Ok(())
 }
 
-/// 全局快捷持久化：接收各状态快照（含窗口坐标）并落盘
+/// 全局快捷持久化：接收各状态快照（含窗口摆放）并落盘
 pub fn persist_current(
     items: &[ReminderItem],
     theme_mode: ThemeMode,
     opacity: f32,
     is_mini: bool,
     is_all_paused: bool,
-    window_pos: Option<(i32, i32)>,
+    window_placement: Option<WindowPlacement>,
 ) {
     let mut state = AppState {
         items: items.to_vec(),
@@ -196,7 +198,7 @@ pub fn persist_current(
         opacity,
         is_mini,
         is_all_paused,
-        window_pos,
+        window_placement,
         last_saved_timestamp: None,
     };
     if let Err(e) = save_state(&mut state) {
@@ -207,6 +209,14 @@ pub fn persist_current(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nsh_core::geometry::{bounds, point, px, size};
+
+    /// 一份可比较的窗口摆放样本（`WindowPlacement` 是 non_exhaustive，用 Default 加字段）
+    fn sample_placement() -> WindowPlacement {
+        let mut placement = WindowPlacement::default();
+        placement.bounds = bounds(point(px(500.0), px(300.0)), size(px(320.0), px(350.0)));
+        placement
+    }
 
     #[test]
     fn test_app_state_default() {
@@ -216,20 +226,20 @@ mod tests {
         assert_eq!(state.opacity, 1.0);
         assert!(!state.is_mini);
         assert!(!state.is_all_paused);
-        assert_eq!(state.window_pos, None);
+        assert_eq!(state.window_placement, None);
         assert!(state.last_saved_timestamp.is_some());
     }
 
     #[test]
     fn test_serde_json_roundtrip() {
         let mut state = AppState::default();
-        state.window_pos = Some((200, 300));
+        state.window_placement = Some(sample_placement());
         let json = serde_json::to_string(&state).unwrap();
         let restored: AppState = serde_json::from_str(&json).unwrap();
         assert_eq!(state.items.len(), restored.items.len());
         assert_eq!(state.theme_mode, restored.theme_mode);
         assert_eq!(state.opacity, restored.opacity);
-        assert_eq!(state.window_pos, Some((200, 300)));
+        assert_eq!(state.window_placement, Some(sample_placement()));
     }
 
     #[test]
@@ -268,7 +278,7 @@ mod tests {
             opacity: 0.85,
             is_mini: true,
             is_all_paused: true,
-            window_pos: Some((450, 520)),
+            window_placement: Some(sample_placement()),
             last_saved_timestamp: current_timestamp(),
         };
 
@@ -284,7 +294,7 @@ mod tests {
         assert_eq!(loaded.opacity, 0.85);
         assert!(loaded.is_mini);
         assert!(loaded.is_all_paused);
-        assert_eq!(loaded.window_pos, Some((450, 520)));
+        assert_eq!(loaded.window_placement, Some(sample_placement()));
 
         // 连续二次写入测试 Windows 覆盖兼容性
         state.opacity = 0.90;
