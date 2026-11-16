@@ -14,3 +14,16 @@ test("renders reminder app", async () => {
   expect(app.texts()).toContain("起身活动");
   expect(app.texts()).toContain("带薪拉屎");
 });
+
+test("shows the global hotkey in the settings drawer", async () => {
+  const app = await open(".");
+  if (!app.texts().includes("reminder 提醒")) {
+    await app.press("id:expand-mini-btn");
+  }
+  await app.press("id:settings-toggle");
+  await app.waitFor("text:全局热键");
+  const texts = app.texts();
+  expect(texts).toContain("全局热键");
+  // 修饰键按平台显示 Ctrl / ⌘、Alt / ⌥，末位键帽跨平台一致
+  expect(texts).toContain("R");
+});

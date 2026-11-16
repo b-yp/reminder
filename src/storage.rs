@@ -19,6 +19,14 @@ fn default_opacity() -> f32 {
     1.0
 }
 
+fn default_hotkey() -> String {
+    crate::hotkey::DEFAULT_HOTKEY.to_string()
+}
+
+fn default_hotkey_enabled() -> bool {
+    true
+}
+
 /// 应用程序持久化完整状态
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AppState {
@@ -31,6 +39,12 @@ pub struct AppState {
     pub is_mini: bool,
     #[serde(default)]
     pub is_all_paused: bool,
+    /// 一键隐藏 / 呼出悬浮窗的全局热键（NSH `Shortcut` 写法，如 `mod+alt+r`）
+    #[serde(default = "default_hotkey")]
+    pub hotkey: String,
+    /// 是否启用全局热键（关闭后系统不会监听该组合键）
+    #[serde(default = "default_hotkey_enabled")]
+    pub hotkey_enabled: bool,
     /// 上次的窗口摆放（NSH `WindowState::placement`，逻辑点屏幕坐标），开机恢复到同一位置；
     /// 显示器拔插后由 `set_placement` 自动贴回可见区域
     #[serde(default)]
@@ -52,6 +66,8 @@ impl Default for AppState {
             opacity: 1.0,
             is_mini: false,
             is_all_paused: false,
+            hotkey: default_hotkey(),
+            hotkey_enabled: true,
             window_placement: None,
             last_saved_timestamp: current_timestamp(),
         }
@@ -190,6 +206,8 @@ pub fn persist_current(
     opacity: f32,
     is_mini: bool,
     is_all_paused: bool,
+    hotkey: &str,
+    hotkey_enabled: bool,
     window_placement: Option<WindowPlacement>,
 ) {
     let mut state = AppState {
@@ -198,6 +216,8 @@ pub fn persist_current(
         opacity,
         is_mini,
         is_all_paused,
+        hotkey: crate::hotkey::normalize(hotkey),
+        hotkey_enabled,
         window_placement,
         last_saved_timestamp: None,
     };
@@ -226,19 +246,34 @@ mod tests {
         assert_eq!(state.opacity, 1.0);
         assert!(!state.is_mini);
         assert!(!state.is_all_paused);
+        assert_eq!(state.hotkey, crate::hotkey::DEFAULT_HOTKEY);
+        assert!(state.hotkey_enabled);
         assert_eq!(state.window_placement, None);
         assert!(state.last_saved_timestamp.is_some());
+    }
+
+    #[test]
+    fn test_missing_hotkey_fields_fall_back_to_default_enabled() {
+        // 旧版本状态文件没有热键字段：反序列化后应拿到默认组合键且保持启用
+        let legacy = r#"{"items":[{"id":1,"name":"喝水","icon":"droplet","interval_secs":1800}]}"#;
+        let restored: AppState = serde_json::from_str(legacy).unwrap();
+        assert_eq!(restored.hotkey, crate::hotkey::DEFAULT_HOTKEY);
+        assert!(restored.hotkey_enabled);
     }
 
     #[test]
     fn test_serde_json_roundtrip() {
         let mut state = AppState::default();
         state.window_placement = Some(sample_placement());
+        state.hotkey = "mod+alt+r".to_string();
+        state.hotkey_enabled = false;
         let json = serde_json::to_string(&state).unwrap();
         let restored: AppState = serde_json::from_str(&json).unwrap();
         assert_eq!(state.items.len(), restored.items.len());
         assert_eq!(state.theme_mode, restored.theme_mode);
         assert_eq!(state.opacity, restored.opacity);
+        assert_eq!(restored.hotkey, "mod+alt+r");
+        assert!(!restored.hotkey_enabled);
         assert_eq!(state.window_placement, Some(sample_placement()));
     }
 
@@ -278,6 +313,8 @@ mod tests {
             opacity: 0.85,
             is_mini: true,
             is_all_paused: true,
+            hotkey: "mod+alt+p".to_string(),
+            hotkey_enabled: false,
             window_placement: Some(sample_placement()),
             last_saved_timestamp: current_timestamp(),
         };
@@ -294,6 +331,8 @@ mod tests {
         assert_eq!(loaded.opacity, 0.85);
         assert!(loaded.is_mini);
         assert!(loaded.is_all_paused);
+        assert_eq!(loaded.hotkey, "mod+alt+p");
+        assert!(!loaded.hotkey_enabled);
         assert_eq!(loaded.window_placement, Some(sample_placement()));
 
         // 连续二次写入测试 Windows 覆盖兼容性

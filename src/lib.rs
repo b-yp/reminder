@@ -1,6 +1,8 @@
 //! The app's Rust UI: reminder 桌面通用健康与生活提醒悬浮挂件
-//! 纯 Rust 编写、完全遵循 NSH 官方设计规范与 shadcn/ui 主题系统、支持明暗主题自由切换与跟随系统、支持随意拖拽、矢量环形进度图标
+//! 纯 Rust 编写、完全遵循 NSH 官方设计规范与 shadcn/ui 主题系统、支持明暗主题自由切换与跟随系统、
+//! 支持随意拖拽、矢量环形进度图标、全局热键一键隐藏 / 呼出悬浮窗
 
+pub mod hotkey;
 pub mod icons;
 pub mod model;
 pub mod storage;
@@ -13,7 +15,8 @@ use std::time::Duration;
 use nsh_core::prelude::*;
 use nsh_core::element::{desktop, input, AdaptiveColor};
 use nsh_core::desktop::{WindowAttributes, WindowFrame, WindowFrameStyle, WindowLevel};
-use nsh_base::{SliderValue, slider, collapsible, theme};
+use nsh_base::{SliderValue, button, slider, collapsible, switch, theme};
+use hotkey::HotkeyStatus;
 use model::ReminderItem;
 use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG};
 
@@ -330,10 +333,11 @@ pub fn App() -> impl IntoElement {
     desktop::main_window().set(floating_window_attributes());
 
     // 配置 Windows / macOS 系统托盘与状态栏通知区域图标及单击唤起
+    // （挂件被全局热键收起后，托盘图标是把它找回来的入口）
     desktop::set_tray(Some(
         desktop::tray()
             .icon(LOGO)
-            .tooltip("reminder 提醒")
+            .tooltip("reminder 提醒 · 全局热键隐藏 / 呼出")
             .on_click(|_| {
                 desktop::main_window().show();
                 desktop::main_window().focus();
@@ -361,6 +365,9 @@ pub fn App() -> impl IntoElement {
     let is_all_paused = signal(initial_state.is_all_paused);
     let opacity = signal(initial_state.opacity);
     let is_mini = signal(initial_state.is_mini);
+    let hotkey = signal(hotkey::normalize(&initial_state.hotkey));
+    let hotkey_enabled = signal(initial_state.hotkey_enabled);
+    let hotkey_status = signal(HotkeyStatus::Pending);
     let last_saved_placement = signal(initial_state.window_placement);
     let show_settings = signal(false);
     let show_presets = signal(false);
@@ -379,6 +386,8 @@ pub fn App() -> impl IntoElement {
                 opacity.get(),
                 is_mini.get(),
                 is_all_paused.get(),
+                &hotkey.get(),
+                hotkey_enabled.get(),
                 win_placement,
             );
         }
@@ -406,6 +415,29 @@ pub fn App() -> impl IntoElement {
         } else {
             save_app_state();
         }
+    });
+
+    // 全局热键安装：组合键或开关变化时先释放旧按键再按新配置注册，
+    // 系统接受后热键可隐藏 / 呼出悬浮窗；注册结果（生效 / 被占用）回写到设置抽屉的状态徽章
+    let hotkey_generation = stored(0u64);
+    effect(move || {
+        let enabled = hotkey_enabled.get();
+        let combo = hotkey.get();
+        // 每次重新注册都换一代，旧的注册结果回来时不再覆盖新状态
+        let generation = hotkey_generation.get() + 1;
+        hotkey_generation.replace(generation);
+
+        if !os().is_desktop() {
+            hotkey_status.set(HotkeyStatus::Unsupported);
+            return;
+        }
+        desktop::unregister_all_global_shortcuts();
+        if !enabled {
+            hotkey_status.set(HotkeyStatus::Disabled);
+            return;
+        }
+        hotkey_status.set(HotkeyStatus::Pending);
+        hotkey::register(combo, generation, hotkey_generation, hotkey_status, 3);
     });
 
     // 每秒驱动倒计时更新与到期提醒，检测窗口拖动并定期同步时间戳（提供离线流逝时间基准）与位置变动
@@ -498,6 +530,9 @@ pub fn App() -> impl IntoElement {
                 show_custom_form,
                 opacity,
                 theme_mode,
+                hotkey,
+                hotkey_enabled,
+                hotkey_status,
                 enter_mini,
                 save_app_state,
             )
@@ -514,6 +549,9 @@ fn render_full_card(
     show_custom_form: Signal<bool>,
     opacity: Signal<f32>,
     theme_mode: Signal<ThemeMode>,
+    hotkey: Signal<String>,
+    hotkey_enabled: Signal<bool>,
+    hotkey_status: Signal<HotkeyStatus>,
     on_enter_mini: impl Fn() + Copy + 'static,
     on_save: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
@@ -546,14 +584,18 @@ fn render_full_card(
                             items,
                             opacity,
                             theme_mode,
+                            hotkey,
+                            hotkey_enabled,
+                            hotkey_status,
                             on_save,
                         ))
                         // 核心提醒列表
                         .child(render_items(items, on_save)),
                 ),
         )
-        // 3. 底部状态行（通用统计：「进行中 X 项 · 今日打卡 Y 次」，若处于半透明状态则额外指示不透明度）
-        .child(render_footer(items, opacity))
+        // 3. 底部状态行（通用统计：「进行中 X 项 · 今日打卡 Y 次」，若处于半透明状态则额外指示不透明度；
+        //    常态下右侧显示全局热键，提示一键隐藏 / 呼出）
+        .child(render_footer(items, opacity, hotkey, hotkey_enabled))
 }
 
 /// 迷你胶囊挂件形态（Mini Pill / Dynamic Island）：仅 220x44 像素，支持全屏自由拖动、显示最优先提醒、一键完成打卡与一键展开
@@ -863,6 +905,7 @@ fn render_header(
                 // 设置 / 新建
                 .child(
                     view()
+                        .test_id("settings-toggle")
                         .w(px(22.0))
                         .h(px(22.0))
                         .rounded(px(5.0))
@@ -1204,10 +1247,13 @@ fn render_item_row(
         )
 }
 
-/// 底部统计行：细线分隔 + 灰白小字通用统计 + 半透明时指示不透明度状态
+/// 底部统计行：细线分隔 + 灰白小字通用统计 + 半透明时指示不透明度，
+/// 常态下右侧用键盘图标与键位提示全局热键（一键隐藏 / 呼出悬浮窗）
 fn render_footer(
     items: Signal<Vec<ReminderItem>>,
     opacity: Signal<f32>,
+    hotkey: Signal<String>,
+    hotkey_enabled: Signal<bool>,
 ) -> impl IntoElement {
     let summary_text = computed(move || {
         items.with(|list| {
@@ -1230,15 +1276,45 @@ fn render_footer(
                 .text_size(px(11.0))
                 .text_color(move || theme().muted_foreground),
         )
+        // 右侧：全局热键提示 + 半透明时的不透明度微标（都放得下，热键提示不被挤掉）
         .child(
-            when(
-                move || opacity.get() < 0.99,
-                move || {
-                    text(move || format!("不透明度 {:.0}%", opacity.get() * 100.0))
-                        .text_size(px(10.5))
-                        .text_color(ACCENT_GOLD)
-                },
-            ),
+            view()
+                .flex_row()
+                .items_center()
+                .gap(px(6.0))
+                .child(
+                    when(move || hotkey_enabled.get(), move || {
+                        view()
+                            .test_id("hotkey-hint")
+                            .flex_row()
+                            .items_center()
+                            .gap(px(4.0))
+                            .child(icons::icon_svg(
+                                icons::ICON_KEYBOARD,
+                                11.0,
+                                move || theme().muted_foreground,
+                            ))
+                            .child(
+                                text(move || hotkey::label(&hotkey.get()))
+                                    .text_size(px(9.5))
+                                    .text_color(move || theme().muted_foreground),
+                            )
+                    }),
+                )
+                .child(
+                    when(move || opacity.get() < 0.99, move || {
+                        view()
+                            .flex_row()
+                            .items_center()
+                            .gap(px(3.0))
+                            .child(icons::icon_svg(icons::ICON_OPACITY, 10.0, ACCENT_GOLD))
+                            .child(
+                                text(move || format!("{:.0}%", opacity.get() * 100.0))
+                                    .text_size(px(9.5))
+                                    .text_color(ACCENT_GOLD),
+                            )
+                    }),
+                ),
         )
 }
 
@@ -1342,7 +1418,8 @@ fn render_preset_card(
         )
 }
 
-/// 设置与添加新提醒抽屉（点击齿轮展开，支持外观主题切换、窗口不透明度调节、推荐快速开启与优雅折叠的自定义新提醒）
+/// 设置与添加新提醒抽屉（点击齿轮展开，支持外观主题切换、窗口不透明度调节、
+/// 全局热键开关、推荐快速开启与优雅折叠的自定义新提醒）
 fn render_drawer(
     show: Signal<bool>,
     show_presets: Signal<bool>,
@@ -1350,6 +1427,9 @@ fn render_drawer(
     items: Signal<Vec<ReminderItem>>,
     opacity: Signal<f32>,
     theme_mode: Signal<ThemeMode>,
+    hotkey: Signal<String>,
+    hotkey_enabled: Signal<bool>,
+    hotkey_status: Signal<HotkeyStatus>,
     on_save: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
     let custom_name = signal(String::new());
@@ -1567,7 +1647,22 @@ fn render_drawer(
                         .border_t_1()
                         .border_color(move || theme().border),
                 )
-                // 3. 基于 Collapsible 的常用推荐区域：支持平滑折叠，预设 6 项精炼对称双列卡片排版
+                // 3. 全局热键：一键隐藏 / 呼出悬浮窗（可在任意应用中使用）
+                .child(render_hotkey_setting(
+                    hotkey,
+                    hotkey_enabled,
+                    hotkey_status,
+                    on_save,
+                ))
+                // 细分割线
+                .child(
+                    view()
+                        .w_full()
+                        .my(px(2.0))
+                        .border_t_1()
+                        .border_color(move || theme().border),
+                )
+                // 4. 基于 Collapsible 的常用推荐区域：支持平滑折叠，预设 6 项精炼对称双列卡片排版
                 .child(
                     collapsible()
                         .open(show_presets)
@@ -1668,7 +1763,7 @@ fn render_drawer(
                         .border_t_1()
                         .border_color(move || theme().border),
                 )
-                // 4. 基于 Collapsible 的自定义新提醒区域：默认收起，点击平滑展开完整配置面板
+                // 5. 基于 Collapsible 的自定义新提醒区域：默认收起，点击平滑展开完整配置面板
                 .child(
                     collapsible()
                         .open(show_custom_form)
@@ -2115,6 +2210,187 @@ fn render_drawer(
                                         ),
                                 ),
                         ),
+                ),
+        )
+}
+
+/// 全局热键设置区：键帽提示当前组合键、开关控制是否监听、状态徽章说明注册结果，
+/// 「换一组」在候选组合键间轮换（组合键被其他应用占用时用它换一个）
+fn render_hotkey_setting(
+    hotkey: Signal<String>,
+    hotkey_enabled: Signal<bool>,
+    hotkey_status: Signal<HotkeyStatus>,
+    on_save: impl Fn() + Copy + 'static,
+) -> impl IntoElement {
+    // 桌面（macOS / Windows / Linux）才有系统级热键；Web 与移动端显示为不可用
+    let supported = os().is_desktop();
+    let keycaps = computed(move || hotkey::keycaps(&hotkey.get()));
+
+    view()
+        .flex_col()
+        .gap(px(4.0))
+        // 标题行：键盘图标 + 名称 + 启用开关
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(icons::icon_svg(icons::ICON_KEYBOARD, 12.0, ACCENT_GOLD))
+                        .child(
+                            text("全局热键")
+                                .text_size(px(11.5))
+                                .text_color(move || theme().foreground),
+                        ),
+                )
+                .child(
+                    switch()
+                        .checked(hotkey_enabled)
+                        .disabled(!supported)
+                        .accessibility_label("启用全局热键")
+                        .focus_visible(|s| {
+                            s.outline(px(2.0)).outline_color(move || theme().ring)
+                        })
+                        .on_change(move |next: &bool| {
+                            hotkey_enabled.set(*next);
+                            on_save();
+                        })
+                        .track_style(|s| {
+                            s.w(px(34.0))
+                                .h(px(20.0))
+                                .p(px(3.0))
+                                .rounded_full()
+                                .bg(move || theme().muted)
+                                .border_1()
+                                .border_color(move || theme().border)
+                                .transition_colors()
+                                .duration(move || {
+                                    if reduce_motion() { 0.0_f32 } else { 160.0_f32 }
+                                })
+                                .checked(|s| s.bg(ACCENT_GOLD).border_color(ACCENT_GOLD))
+                        })
+                        .thumb_style(|s| {
+                            s.size(px(14.0))
+                                .rounded_full()
+                                .bg(move || theme().background)
+                                .border_1()
+                                .border_color(move || theme().border)
+                                .transition_transform()
+                                .duration(move || {
+                                    if reduce_motion() { 0.0_f32 } else { 160.0_f32 }
+                                })
+                                .checked(|s| s.translate_x(px(12.0)))
+                        }),
+                ),
+        )
+        // 键帽行：逐个按键 + 注册状态徽章
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(px(6.0))
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(3.0))
+                        .opacity(move || if hotkey_enabled.get() { 1.0_f32 } else { 0.45_f32 })
+                        .child(each(
+                            keycaps,
+                            |cap| cap.clone(),
+                            |cap, _| {
+                                view()
+                                    .px(px(4.0))
+                                    .py(px(1.0))
+                                    .rounded(px(3.0))
+                                    .bg(move || theme().secondary)
+                                    .border_1()
+                                    .border_color(move || theme().border)
+                                    .child(
+                                        text(move || cap.get())
+                                            .text_size(px(9.5))
+                                            .text_color(move || theme().muted_foreground),
+                                    )
+                            },
+                        )),
+                )
+                .child(
+                    view()
+                        .px(px(6.0))
+                        .py(px(1.5))
+                        .rounded(px(4.0))
+                        .bg(move || match hotkey_status.get() {
+                            HotkeyStatus::Active => ACCENT_GOLD_BG,
+                            HotkeyStatus::Taken => theme().destructive.opacity(0.12),
+                            _ => theme().muted,
+                        })
+                        .transition_colors()
+                        .duration(120.0_f32)
+                        .child(
+                            text(move || hotkey_status.get().label())
+                                .text_size(px(9.5))
+                                .text_color(move || match hotkey_status.get() {
+                                    HotkeyStatus::Active => ACCENT_GOLD,
+                                    HotkeyStatus::Taken => theme().destructive,
+                                    _ => theme().muted_foreground,
+                                }),
+                        ),
+                ),
+        )
+        // 说明行：状态解释 + 「换一组」
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(px(6.0))
+                .child(
+                    text(move || hotkey_status.get().hint())
+                        .text_size(px(9.5))
+                        .text_color(move || {
+                            if hotkey_status.get().is_error() {
+                                theme().destructive
+                            } else {
+                                theme().muted_foreground
+                            }
+                        }),
+                )
+                .child(
+                    when(
+                        move || supported && hotkey_enabled.get(),
+                        move || {
+                            // 语义按钮：可 Tab 聚焦、空格 / 回车触发，带键盘焦点环
+                            button()
+                                .px(px(6.0))
+                                .h(px(18.0))
+                                .rounded(px(4.0))
+                                .bg(move || theme().secondary)
+                                .border_1()
+                                .border_color(move || theme().border)
+                                .items_center()
+                                .justify_center()
+                                .hover(|s| s.border_color(ACCENT_GOLD))
+                                .active(|s| s.opacity(0.5))
+                                .focus_visible(|s| {
+                                    s.outline(px(2.0)).outline_color(move || theme().ring)
+                                })
+                                .on_press(move || {
+                                    let next = hotkey::next_preset(&hotkey.get());
+                                    hotkey.set(next.to_string());
+                                    on_save();
+                                })
+                                .child(
+                                    text("换一组")
+                                        .text_size(px(9.5))
+                                        .text_color(move || theme().muted_foreground),
+                                )
+                        },
+                    ),
                 ),
         )
 }
