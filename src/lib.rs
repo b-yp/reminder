@@ -1,12 +1,14 @@
 //! The app's Rust UI: reminder 桌面通用健康与生活提醒悬浮挂件
 //! 纯 Rust 编写、完全遵循 NSH 官方设计规范与 shadcn/ui 主题系统、支持明暗主题自由切换与跟随系统、
-//! 支持随意拖拽、矢量环形进度图标、全局热键一键隐藏 / 呼出悬浮窗
+//! 支持随意拖拽、矢量环形进度图标、全局热键一键隐藏 / 呼出悬浮窗、登录系统自动启动
 
+pub mod autostart;
 pub mod hotkey;
 pub mod icons;
 pub mod model;
 pub mod storage;
 pub mod theme_mode;
+pub mod ui;
 
 use storage::load_state;
 pub use storage::AppState;
@@ -15,7 +17,7 @@ use std::time::Duration;
 use nsh_core::prelude::*;
 use nsh_core::element::{desktop, input, AdaptiveColor};
 use nsh_core::desktop::{WindowAttributes, WindowFrame, WindowFrameStyle, WindowLevel};
-use nsh_base::{SliderValue, button, slider, collapsible, switch, theme};
+use nsh_base::{SliderValue, button, slider, collapsible, theme};
 use hotkey::HotkeyStatus;
 use model::ReminderItem;
 use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG};
@@ -368,6 +370,9 @@ pub fn App() -> impl IntoElement {
     let hotkey = signal(hotkey::normalize(&initial_state.hotkey));
     let hotkey_enabled = signal(initial_state.hotkey_enabled);
     let hotkey_status = signal(HotkeyStatus::Pending);
+    // 开机自启以系统启动项为准：每次启动回读，用户可能在系统设置里改过
+    let autostart_enabled = signal(autostart::is_enabled());
+    let autostart_error = signal(Option::<String>::None);
     let last_saved_placement = signal(initial_state.window_placement);
     let show_settings = signal(false);
     let show_presets = signal(false);
@@ -533,6 +538,8 @@ pub fn App() -> impl IntoElement {
                 hotkey,
                 hotkey_enabled,
                 hotkey_status,
+                autostart_enabled,
+                autostart_error,
                 enter_mini,
                 save_app_state,
             )
@@ -552,6 +559,8 @@ fn render_full_card(
     hotkey: Signal<String>,
     hotkey_enabled: Signal<bool>,
     hotkey_status: Signal<HotkeyStatus>,
+    autostart_enabled: Signal<bool>,
+    autostart_error: Signal<Option<String>>,
     on_enter_mini: impl Fn() + Copy + 'static,
     on_save: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
@@ -587,6 +596,8 @@ fn render_full_card(
                             hotkey,
                             hotkey_enabled,
                             hotkey_status,
+                            autostart_enabled,
+                            autostart_error,
                             on_save,
                         ))
                         // 核心提醒列表
@@ -1430,6 +1441,8 @@ fn render_drawer(
     hotkey: Signal<String>,
     hotkey_enabled: Signal<bool>,
     hotkey_status: Signal<HotkeyStatus>,
+    autostart_enabled: Signal<bool>,
+    autostart_error: Signal<Option<String>>,
     on_save: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
     let custom_name = signal(String::new());
@@ -1662,7 +1675,17 @@ fn render_drawer(
                         .border_t_1()
                         .border_color(move || theme().border),
                 )
-                // 4. 基于 Collapsible 的常用推荐区域：支持平滑折叠，预设 6 项精炼对称双列卡片排版
+                // 4. 开机自启：登录系统后自动运行挂件，开关直接写系统启动项
+                .child(render_autostart_setting(autostart_enabled, autostart_error))
+                // 细分割线
+                .child(
+                    view()
+                        .w_full()
+                        .my(px(2.0))
+                        .border_t_1()
+                        .border_color(move || theme().border),
+                )
+                // 5. 基于 Collapsible 的常用推荐区域：支持平滑折叠，预设 6 项精炼对称双列卡片排版
                 .child(
                     collapsible()
                         .open(show_presets)
@@ -1763,7 +1786,7 @@ fn render_drawer(
                         .border_t_1()
                         .border_color(move || theme().border),
                 )
-                // 5. 基于 Collapsible 的自定义新提醒区域：默认收起，点击平滑展开完整配置面板
+                // 6. 基于 Collapsible 的自定义新提醒区域：默认收起，点击平滑展开完整配置面板
                 .child(
                     collapsible()
                         .open(show_custom_form)
@@ -2247,45 +2270,15 @@ fn render_hotkey_setting(
                                 .text_color(move || theme().foreground),
                         ),
                 )
-                .child(
-                    switch()
-                        .checked(hotkey_enabled)
-                        .disabled(!supported)
-                        .accessibility_label("启用全局热键")
-                        .focus_visible(|s| {
-                            s.outline(px(2.0)).outline_color(move || theme().ring)
-                        })
-                        .on_change(move |next: &bool| {
-                            hotkey_enabled.set(*next);
-                            on_save();
-                        })
-                        .track_style(|s| {
-                            s.w(px(34.0))
-                                .h(px(20.0))
-                                .p(px(3.0))
-                                .rounded_full()
-                                .bg(move || theme().muted)
-                                .border_1()
-                                .border_color(move || theme().border)
-                                .transition_colors()
-                                .duration(move || {
-                                    if reduce_motion() { 0.0_f32 } else { 160.0_f32 }
-                                })
-                                .checked(|s| s.bg(ACCENT_GOLD).border_color(ACCENT_GOLD))
-                        })
-                        .thumb_style(|s| {
-                            s.size(px(14.0))
-                                .rounded_full()
-                                .bg(move || theme().background)
-                                .border_1()
-                                .border_color(move || theme().border)
-                                .transition_transform()
-                                .duration(move || {
-                                    if reduce_motion() { 0.0_f32 } else { 160.0_f32 }
-                                })
-                                .checked(|s| s.translate_x(px(12.0)))
-                        }),
-                ),
+                .child(ui::setting_switch(
+                    hotkey_enabled,
+                    !supported,
+                    "启用全局热键",
+                    move |next| {
+                        hotkey_enabled.set(next);
+                        on_save();
+                    },
+                )),
         )
         // 键帽行：逐个按键 + 注册状态徽章
         .child(
@@ -2319,28 +2312,14 @@ fn render_hotkey_setting(
                             },
                         )),
                 )
-                .child(
-                    view()
-                        .px(px(6.0))
-                        .py(px(1.5))
-                        .rounded(px(4.0))
-                        .bg(move || match hotkey_status.get() {
-                            HotkeyStatus::Active => ACCENT_GOLD_BG,
-                            HotkeyStatus::Taken => theme().destructive.opacity(0.12),
-                            _ => theme().muted,
-                        })
-                        .transition_colors()
-                        .duration(120.0_f32)
-                        .child(
-                            text(move || hotkey_status.get().label())
-                                .text_size(px(9.5))
-                                .text_color(move || match hotkey_status.get() {
-                                    HotkeyStatus::Active => ACCENT_GOLD,
-                                    HotkeyStatus::Taken => theme().destructive,
-                                    _ => theme().muted_foreground,
-                                }),
-                        ),
-                ),
+                .child(ui::status_badge(
+                    move || match hotkey_status.get() {
+                        HotkeyStatus::Active => ui::BadgeTone::Accent,
+                        HotkeyStatus::Taken => ui::BadgeTone::Danger,
+                        _ => ui::BadgeTone::Muted,
+                    },
+                    move || hotkey_status.get().label(),
+                )),
         )
         // 说明行：状态解释 + 「换一组」
         .child(
@@ -2392,6 +2371,92 @@ fn render_hotkey_setting(
                         },
                     ),
                 ),
+        )
+}
+
+/// 开机自启设置区：开关直接写系统启动项（Windows 注册表 Run 项 / macOS LaunchAgent /
+/// Linux XDG autostart），状态徽章以系统回读结果为准；写入被拒绝时开关退回真实状态并给出原因
+fn render_autostart_setting(
+    autostart_enabled: Signal<bool>,
+    autostart_error: Signal<Option<String>>,
+) -> impl IntoElement {
+    // 桌面（macOS / Windows / Linux）才有登录启动项；Web 与移动端整块置灰
+    let supported = autostart::is_supported();
+    let current_state = move || {
+        autostart::state(
+            supported,
+            autostart_enabled.get(),
+            autostart_error.get().as_deref(),
+        )
+    };
+
+    view()
+        .flex_col()
+        .gap(px(4.0))
+        .opacity(move || if supported { 1.0_f32 } else { 0.55_f32 })
+        // 标题行：电源图标 + 名称 + 启用开关
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.0))
+                        .child(icons::icon_svg(icons::ICON_POWER, 12.0, ACCENT_GOLD))
+                        .child(
+                            text("开机自启")
+                                .text_size(px(11.5))
+                                .text_color(move || theme().foreground),
+                        ),
+                )
+                .child(ui::setting_switch(
+                    autostart_enabled,
+                    !supported,
+                    "开机自启",
+                    move |next| match autostart::set_enabled(next) {
+                        Ok(()) => {
+                            autostart_error.set(None);
+                            // 以系统回读为准：登记成功但被系统改写时，开关显示真实状态
+                            autostart_enabled.set(autostart::is_enabled());
+                        }
+                        Err(error) => {
+                            autostart_enabled.set(autostart::is_enabled());
+                            autostart_error.set(Some(error));
+                        }
+                    },
+                )),
+        )
+        // 说明行：状态解释 + 状态徽章
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap(px(6.0))
+                .child(
+                    text(move || {
+                        autostart::hint(current_state(), autostart_error.get().as_deref())
+                    })
+                    .text_size(px(9.5))
+                    .text_color(move || {
+                        if current_state().is_error() {
+                            theme().destructive
+                        } else {
+                            theme().muted_foreground
+                        }
+                    }),
+                )
+                .child(ui::status_badge(
+                    move || match current_state() {
+                        autostart::AutostartState::Enabled => ui::BadgeTone::Accent,
+                        autostart::AutostartState::Failed => ui::BadgeTone::Danger,
+                        _ => ui::BadgeTone::Muted,
+                    },
+                    move || current_state().label(),
+                )),
         )
 }
 

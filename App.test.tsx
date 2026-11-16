@@ -27,3 +27,16 @@ test("shows the global hotkey in the settings drawer", async () => {
   // 修饰键按平台显示 Ctrl / ⌘、Alt / ⌥，末位键帽跨平台一致
   expect(texts).toContain("R");
 });
+
+test("offers launch at login in the settings drawer", async () => {
+  const app = await open(".");
+  if (!app.texts().includes("reminder 提醒")) {
+    await app.press("id:expand-mini-btn");
+  }
+  await app.press("id:settings-toggle");
+  await app.waitFor("text:开机自启");
+  const texts = app.texts();
+  expect(texts).toContain("开机自启");
+  // 开 / 关两种状态共用同一句前缀，说明这块确实由系统状态驱动
+  expect(texts.join(" ")).toContain("登录系统后自动");
+});
