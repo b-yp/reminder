@@ -144,23 +144,35 @@ pub fn load_state_from_path(path: &std::path::Path) -> AppState {
         }
     }
 
+    // 3. 定点提醒按本地墙钟校正：启动时可能刚好跨过今天的定时时刻
+    refresh_daily(&mut state.items);
+
     state
 }
 
-/// 对未暂停的提醒项目应用离线流逝秒数
+/// 用当前本地时间校正所有定点提醒的倒计时与超时状态（不触发响铃）
+pub fn refresh_daily(items: &mut [ReminderItem]) {
+    let now = crate::localtime::now();
+    for item in items.iter_mut() {
+        item.refresh(&now);
+    }
+}
+
+/// 对未暂停的提醒项目应用离线流逝秒数（定点提醒按墙上时间重算，不参与递减）
 pub fn apply_elapsed_time(items: &mut [ReminderItem], elapsed_secs: u32) {
     if elapsed_secs == 0 {
         return;
     }
     for item in items.iter_mut() {
-        if !item.is_paused {
-            if item.remaining_secs > elapsed_secs {
-                item.remaining_secs -= elapsed_secs;
-            } else {
-                let overflow = elapsed_secs - item.remaining_secs;
-                item.remaining_secs = 0;
-                item.overdue_secs = item.overdue_secs.saturating_add(overflow);
-            }
+        if item.is_paused || item.is_daily() {
+            continue;
+        }
+        if item.remaining_secs > elapsed_secs {
+            item.remaining_secs -= elapsed_secs;
+        } else {
+            let overflow = elapsed_secs - item.remaining_secs;
+            item.remaining_secs = 0;
+            item.overdue_secs = item.overdue_secs.saturating_add(overflow);
         }
     }
 }
@@ -342,6 +354,51 @@ mod tests {
         assert_eq!(loaded2.opacity, 0.90);
 
         // 清理临时文件
+        let _ = fs::remove_file(&file_path);
+        let _ = fs::remove_dir(&temp_dir);
+    }
+
+    #[test]
+    fn test_apply_elapsed_time_skips_daily_items() {
+        use crate::model::Schedule;
+
+        let mut daily = ReminderItem::new("午餐", "apple", 86_400);
+        daily.schedule = Schedule::daily(12, 0);
+        daily.remaining_secs = 3600;
+        let interval = ReminderItem::new("喝水", "droplet", 1800);
+        let mut items = vec![daily, interval];
+
+        apply_elapsed_time(&mut items, 100);
+
+        // 定点提醒不参与递减，等启动后的 refresh 按墙钟校正
+        assert_eq!(items[0].remaining_secs, 3600);
+        assert_eq!(items[1].remaining_secs, 1700);
+    }
+
+    #[test]
+    fn test_daily_item_roundtrip_keeps_schedule() {
+        let temp_dir = std::env::temp_dir().join(format!("reminder_daily_{}", std::process::id()));
+        let file_path = temp_dir.join("daily_state.json");
+        let _ = fs::create_dir_all(&temp_dir);
+
+        let mut state = AppState::default();
+        state.items = vec![ReminderItem::new_daily(
+            "午餐",
+            "apple",
+            12,
+            0,
+            &crate::localtime::now(),
+        )];
+
+        save_state_to_path(&mut state, &file_path).expect("save state failed");
+        let loaded = load_state_from_path(&file_path);
+        assert_eq!(loaded.items.len(), 1);
+        assert!(loaded.items[0].is_daily());
+        assert_eq!(loaded.items[0].daily_time(), Some((12, 0)));
+        assert_eq!(loaded.items[0].format_badge(), "每天 12:00");
+        // 加载时会按当前时间校正，倒计时不会超过一天
+        assert!(loaded.items[0].remaining_secs <= 86_400);
+
         let _ = fs::remove_file(&file_path);
         let _ = fs::remove_dir(&temp_dir);
     }

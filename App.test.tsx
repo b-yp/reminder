@@ -40,3 +40,32 @@ test("offers launch at login in the settings drawer", async () => {
   // 开 / 关两种状态共用同一句前缀，说明这块确实由系统状态驱动
   expect(texts.join(" ")).toContain("登录系统后自动");
 });
+
+test("offers fixed-time daily reminders in the custom form", async () => {
+  const app = await open(".");
+  if (!app.texts().includes("reminder 提醒")) {
+    await app.press("id:expand-mini-btn");
+  }
+  await app.press("id:settings-toggle");
+  await app.waitFor("text:自定义新提醒");
+  // 展开自定义新提醒：默认按循环周期配置
+  await app.press("text:自定义新提醒");
+  await app.waitFor("id:schedule-mode-daily");
+  expect(app.texts()).toContain("循环周期");
+
+  // 切到「每天定点」：出现时:分编辑与常用定点时刻
+  await app.press("id:schedule-mode-daily");
+  await app.waitFor("text:每天提醒时间");
+  await app.waitFor("text:常用时刻:");
+  const texts = app.texts();
+  expect(texts).toContain("每天提醒时间");
+  // 用户示例里的 12:00 午餐、18:30 下班打卡、23:00 睡觉都能一键填入
+  expect(texts).toContain("12:00");
+  expect(texts).toContain("18:30");
+  expect(texts).toContain("23:00");
+
+  // 切回循环周期，原来的分钟快捷填入还在
+  await app.press("id:schedule-mode-interval");
+  await app.waitFor("text:快捷填入:");
+  expect(app.texts()).toContain("循环周期");
+});

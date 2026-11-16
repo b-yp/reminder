@@ -2086,6 +2086,7 @@ version = "0.1.0"
 dependencies = [
  "dispatch2",
  "env_logger",
+ "libc",
  "log",
  "notify-rust",
  "nsh-base",

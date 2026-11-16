@@ -2,3 +2,6 @@
 target/
 
 .agents/
+
+# 界面验证截图
+out/
