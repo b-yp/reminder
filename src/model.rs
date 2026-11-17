@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +77,12 @@ pub struct ReminderItem {
     pub remaining_secs: u32,
     #[serde(default)]
     pub completed_count: u32,
+    /// 按本地日期序号记录每天完成打卡的次数（见 [`LocalNow::day`]）。
+    ///
+    /// 界面只读取当天的次数；更早的日期继续保留，供以后做历史统计。
+    /// 日期序号自 1970-01-01 起算，序列化为 `{"20000": 2}` 这样的键值对。
+    #[serde(default)]
+    pub completed_by_day: BTreeMap<i64, u32>,
     #[serde(default)]
     pub is_paused: bool,
     /// 倒计时归零后的超时持续秒数（用于超时动态统计与持续提醒，避免静止在0）
@@ -117,6 +124,7 @@ impl ReminderItem {
             interval_secs,
             remaining_secs: interval_secs,
             completed_count: 0,
+            completed_by_day: BTreeMap::new(),
             is_paused: false,
             overdue_secs: 0,
             schedule: Schedule::Interval,
@@ -147,6 +155,7 @@ impl ReminderItem {
             interval_secs: SECS_PER_DAY,
             remaining_secs: 0,
             completed_count: 0,
+            completed_by_day: BTreeMap::new(),
             is_paused: false,
             overdue_secs: 0,
             schedule: Schedule::daily(hour, minute),
@@ -179,6 +188,16 @@ impl ReminderItem {
         self.is_daily() && self.done_day == Some(now.day)
     }
 
+    /// `now` 所在本地日期已打卡的次数；只统计当天动作，不包含历史累计
+    pub fn today_completed(&self, now: &LocalNow) -> u32 {
+        self.completed_by_day.get(&now.day).copied().unwrap_or(0)
+    }
+
+    /// 列表右侧的当天统计文本（如「今日 3 次」）
+    pub fn today_label(&self, now: &LocalNow) -> String {
+        format!("今日 {} 次", self.today_completed(now))
+    }
+
     /// 每日定点的（时, 分）
     pub fn daily_time(&self) -> Option<(u8, u8)> {
         self.schedule.daily_time()
@@ -201,7 +220,9 @@ impl ReminderItem {
     /// 打卡归属哪一次提醒：今天刚响过（包括昨晚推迟到凌晨才响的那一次）就归属它；
     /// 推迟还没响就打卡则归属被推迟的那次；否则归属今天这一次（提前打卡会跳过今天）。
     pub fn complete(&mut self, now: &LocalNow) {
-        self.completed_count += 1;
+        self.completed_count = self.completed_count.saturating_add(1);
+        let today = self.completed_by_day.entry(now.day).or_insert(0);
+        *today = today.saturating_add(1);
         self.overdue_secs = 0;
         if !self.is_daily() {
             self.remaining_secs = self.interval_secs;
@@ -501,15 +522,6 @@ impl ReminderItem {
         }
     }
 
-    /// 列表右侧的完成度文本：间隔提醒是周期目标，定点提醒是累计次数
-    pub fn progress_label(&self) -> String {
-        if self.is_daily() {
-            format!("{} 次", self.completed_count)
-        } else {
-            format!("{}/8", self.completed_count)
-        }
-    }
-
     /// 就地更新循环周期时长（分钟），并将超出新周期的倒计时拉齐
     pub fn update_interval_mins(&mut self, mins: u32) {
         if self.is_daily() {
@@ -625,11 +637,24 @@ mod tests {
     }
 
     #[test]
-    fn interval_badge_and_progress_label_stay_as_before() {
-        let item = ReminderItem::new("喝水", "droplet", 30 * 60);
-        assert_eq!(item.format_badge(), "30m");
-        assert_eq!(item.progress_label(), "0/8");
-        assert!(!item.is_daily());
+    fn completions_are_recorded_per_local_day() {
+        let mut item = ReminderItem::new("喝水", "droplet", 30 * 60);
+        item.complete(&local(20_000, NOON));
+        item.complete(&local(20_000, NOON + 60));
+        item.complete(&local(20_001, TEN_AM));
+        item.complete(&local(20_001, NOON));
+
+        // 累计次数保留，同时按天留档，供以后做统计时使用
+        assert_eq!(item.completed_count, 4);
+        assert_eq!(item.completed_by_day.get(&20_000), Some(&2));
+        assert_eq!(item.completed_by_day.get(&20_001), Some(&2));
+        // 界面只取当天：第一天显示 2 次，第二天显示 2 次，其他日子 0 次
+        assert_eq!(item.today_completed(&local(20_000, NOON)), 2);
+        assert_eq!(item.today_label(&local(20_000, NOON)), "今日 2 次");
+        assert_eq!(item.today_completed(&local(20_001, NOON)), 2);
+        assert_eq!(item.today_label(&local(20_002, NOON)), "今日 0 次");
+        // 没有打卡的日子不产生记录
+        assert_eq!(item.completed_by_day.get(&19_999), None);
     }
 
     #[test]
@@ -782,6 +807,8 @@ mod tests {
         item.complete(&morning);
         assert_eq!(item.done_day, Some(20_000));
         assert_eq!(item.remaining_secs, 15 * 3600);
+        // 补打动作也计入当天的历史留档（20_001），不影响今晚这一次
+        assert_eq!(item.completed_by_day.get(&20_001), Some(&1));
         assert!(!item.tick(&local(20_001, 22 * 3600)));
         assert!(item.tick(&local(20_001, 23 * 3600)));
     }
@@ -817,6 +844,7 @@ mod tests {
         assert_eq!(item.schedule, Schedule::Interval);
         assert!(!item.is_daily());
         assert_eq!(item.remaining_secs, 0);
+        assert!(item.completed_by_day.is_empty());
     }
 
     #[test]
@@ -827,9 +855,11 @@ mod tests {
         item.fired_day = Some(20_000);
         item.fired_on = Some(20_000);
         item.fired_at = Some(created.unix + 8 * 3600 + 30 * 60);
+        item.completed_by_day.insert(20_000, 2);
         let json = serde_json::to_string(&item).unwrap();
         let restored: ReminderItem = serde_json::from_str(&json).unwrap();
         assert_eq!(restored, item);
+        assert_eq!(restored.completed_by_day.get(&20_000), Some(&2));
         assert_eq!(
             restored.schedule,
             Schedule::Daily {

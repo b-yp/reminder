@@ -623,7 +623,7 @@ pub fn App() -> impl IntoElement {
     )
 }
 
-/// 完整卡片视图形态（320x350 像素，包含顶栏、核心滚动区与底部统计）
+/// 完整卡片视图形态（320x350 像素，包含顶栏、核心滚动区与底部状态）
 fn render_full_card(
     items: Signal<Vec<ReminderItem>>,
     is_all_paused: Signal<bool>,
@@ -680,7 +680,7 @@ fn render_full_card(
                         .child(render_items(items, on_save)),
                 ),
         )
-        // 3. 底部状态行（通用统计：「进行中 X 项 · 今日打卡 Y 次」，若处于半透明状态则额外指示不透明度；
+        // 3. 底部状态行（「进行中 X 项 · 今日打卡 Y 次」，若处于半透明状态则额外指示不透明度；
         //    常态下右侧显示全局热键，提示一键隐藏 / 呼出）
         .child(render_footer(items, opacity, hotkey, hotkey_enabled))
 }
@@ -1242,16 +1242,16 @@ fn render_item_row(
                         ),
                 ),
         )
-        // 右半部分：完成度「0 / 8」 + 胶囊按钮组 [✓] [+5] [🗑]
+        // 右半部分：当天统计「今日 N 次」 + 胶囊按钮组 [✓] [+5] [🗑]
         .child(
             view()
                 .window_drag(false)
                 .flex_row()
                 .items_center()
                 .gap(px(6.0))
-                // 完成度计数（定点提醒显示累计次数）
+                // 当天完成次数（历史累计只留在数据层，界面不展示）
                 .child(
-                    text(move || item_sig.get().progress_label())
+                    text(move || item_sig.get().today_label(&localtime::now()))
                         .text_size(px(12.0))
                         .text_color(move || theme().muted_foreground),
                 )
@@ -1372,7 +1372,15 @@ fn render_item_row(
         )
 }
 
-/// 底部统计行：细线分隔 + 灰白小字通用统计 + 半透明时指示不透明度，
+/// 底部统计文案：只汇总各提醒「今天」的完成次数，历史累计不进入底栏
+fn footer_summary(items: &[ReminderItem], now: &localtime::LocalNow) -> String {
+    let completed_today = items
+        .iter()
+        .fold(0_u32, |sum, item| sum.saturating_add(item.today_completed(now)));
+    format!("进行中 {} 项 · 今日打卡 {} 次", items.len(), completed_today)
+}
+
+/// 底部状态行：细线分隔 + 灰白小字今日统计 + 半透明时指示不透明度，
 /// 常态下右侧用键盘图标与键位提示全局热键（一键隐藏 / 呼出悬浮窗）
 fn render_footer(
     items: Signal<Vec<ReminderItem>>,
@@ -1381,11 +1389,8 @@ fn render_footer(
     hotkey_enabled: Signal<bool>,
 ) -> impl IntoElement {
     let summary_text = computed(move || {
-        items.with(|list| {
-            let total_completed: u32 = list.iter().map(|i| i.completed_count).sum();
-            let count = list.len();
-            format!("进行中 {} 项 · 今日打卡 {} 次", count, total_completed)
-        })
+        let now = localtime::now();
+        items.with(|list| footer_summary(list, &now))
     });
 
     view()
@@ -3002,6 +3007,42 @@ fn render_autostart_setting(
 mod tests {
     use super::*;
 
+    /// 构造一个确定性的本地时刻（偏移 0，便于断言）
+    fn local(day: i64) -> localtime::LocalNow {
+        localtime::LocalNow {
+            unix: day as u64 * 86_400,
+            day,
+            secs_of_day: 0,
+            hour: 0,
+            minute: 0,
+            second: 0,
+            weekday: 0,
+            offset: 0,
+        }
+    }
+
+    #[test]
+    fn footer_counts_only_todays_check_ins() {
+        let now = local(20_000);
+        let mut yesterday = ReminderItem::new("喝水", "droplet", 1800);
+        // 30 次历史累计都发生在昨天：底栏只统计今天
+        yesterday.completed_count = 30;
+        yesterday.completed_by_day.insert(now.day - 1, 30);
+
+        let mut today = ReminderItem::new("起身活动", "walk", 2700);
+        today.complete(&now);
+        today.complete(&now);
+
+        let items = [yesterday, today];
+        assert_eq!(footer_summary(&items, &now), "进行中 2 项 · 今日打卡 2 次");
+        assert_eq!(
+            footer_summary(&items, &local(20_001)),
+            "进行中 2 项 · 今日打卡 0 次"
+        );
+        // 历史累计仍留在数据层
+        assert_eq!(items[0].completed_count, 30);
+    }
+
     #[test]
     fn test_window_dimension_constants() {
         assert!(MINI_WIDTH < WINDOW_WIDTH);
@@ -3059,6 +3100,7 @@ mod tests {
         state.is_mini = true;
         state.items.push(ReminderItem::new("自定义喝咖啡", "coffee", 1800));
         state.items[0].completed_count = 12;
+        state.items[0].completed_by_day.insert(20_000, 12);
 
         let res = storage::save_state_to_path(&mut state, &test_file);
         assert!(res.is_ok());
@@ -3070,6 +3112,7 @@ mod tests {
         assert!(loaded.is_mini);
         assert_eq!(loaded.items.len(), 4);
         assert_eq!(loaded.items[0].completed_count, 12);
+        assert_eq!(loaded.items[0].completed_by_day.get(&20_000), Some(&12));
         assert_eq!(loaded.items[3].name, "自定义喝咖啡");
 
         let _ = std::fs::remove_file(&test_file);
