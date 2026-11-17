@@ -5,6 +5,7 @@
 pub mod autostart;
 pub mod hotkey;
 pub mod icons;
+pub mod identity;
 pub mod localtime;
 pub mod model;
 pub mod storage;
@@ -12,6 +13,7 @@ pub mod theme_mode;
 pub mod ui;
 
 use storage::load_state;
+pub use identity::APP_ID;
 pub use storage::AppState;
 
 use std::time::Duration;

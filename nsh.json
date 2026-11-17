@@ -1,7 +1,7 @@
 {
   "name": "reminder",
-  "id": "com.example.reminder",
-  "version": "1.0.0",
+  "id": "cc.baiyapeng.reminder",
+  "version": "0.1.0",
   "build": 1,
   "icon": "assets/logo.png",
   "rust": ".",

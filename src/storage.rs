@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{init_next_id, ReminderItem};
 use crate::theme_mode::ThemeMode;
+use crate::APP_ID;
 
 fn default_theme_mode() -> ThemeMode {
     ThemeMode::Dark
@@ -82,26 +83,31 @@ pub fn current_timestamp() -> Option<u64> {
         .map(|d| d.as_secs())
 }
 
-/// 根据操作系统标准规范获取状态存储路径，支持 REMINDER_DATA_PATH 环境变量覆盖
+/// 根据操作系统标准规范获取状态存储路径，支持 REMINDER_DATA_PATH 环境变量覆盖。
+/// 目录名统一用应用标识，与商店 / 更新 / 开机自启登记的身份保持一致。
 pub fn get_storage_path() -> PathBuf {
     if let Ok(custom) = std::env::var("REMINDER_DATA_PATH") {
         return PathBuf::from(custom);
     }
 
     let base_dir = if cfg!(target_os = "macos") {
-        std::env::var("HOME").map(|h| PathBuf::from(h).join("Library/Application Support/com.reminder.app"))
+        std::env::var("HOME")
+            .map(|h| PathBuf::from(h).join("Library/Application Support").join(APP_ID))
     } else if cfg!(target_os = "windows") {
-        std::env::var("APPDATA").map(|a| PathBuf::from(a).join("com.reminder.app"))
+        std::env::var("APPDATA").map(|a| PathBuf::from(a).join(APP_ID))
     } else {
         // Linux / Unix 标准 XDG 规范
         std::env::var("XDG_CONFIG_HOME")
-            .map(|x| PathBuf::from(x).join("reminder"))
-            .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config/reminder")))
+            .map(|x| PathBuf::from(x).join(APP_ID))
+            .or_else(|_| {
+                std::env::var("HOME")
+                    .map(|h| PathBuf::from(h).join(".config").join(APP_ID))
+            })
     };
 
     match base_dir {
         Ok(dir) => dir.join("state.json"),
-        Err(_) => PathBuf::from("reminder_state.json"),
+        Err(_) => PathBuf::from(format!("{APP_ID}.state.json")),
     }
 }
 

@@ -19,7 +19,7 @@ fn main() -> impl std::process::Termination {
             title: "reminder".to_owned(),
             appearance: platform::Appearance::Dark,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            app_id: "com.reminder.app".to_owned(),
+            app_id: nsh_app_reminder::APP_ID.to_owned(),
             size: (nsh_app_reminder::WINDOW_WIDTH as i32, nsh_app_reminder::WINDOW_HEIGHT as i32),
             #[cfg(target_os = "windows")]
             icon: Some(std::path::PathBuf::from(concat!(

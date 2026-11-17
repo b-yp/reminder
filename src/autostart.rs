@@ -1,10 +1,10 @@
 //! 开机自启（登录时启动）：把挂件登记为登录系统后自动运行。
 //!
 //! 三个桌面平台各用系统自己的登记方式，不引入额外依赖：
-//! - Windows：`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下的 `reminder` 值
+//! - Windows：`HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 下以 `APP_ID` 命名的值
 //!   （用 Win32 注册表 API 读写，UTF-16 路径原样保存，不依赖 `reg.exe` 的输出编码）
-//! - macOS：`~/Library/LaunchAgents/com.reminder.app.plist`（`RunAtLoad`，只加载于 Aqua 会话）
-//! - Linux：`~/.config/autostart/com.reminder.app.desktop`（XDG Autostart 规范）
+//! - macOS：`~/Library/LaunchAgents/<APP_ID>.plist`（`RunAtLoad`，只加载于 Aqua 会话）
+//! - Linux：`~/.config/autostart/<APP_ID>.desktop`（XDG Autostart 规范）
 //!
 //! 系统里的登记项就是唯一事实来源：启用状态每次启动直接问系统，不写进 `state.json`。
 //! 这样用户在系统设置里手动关掉、或应用换了安装位置时，界面显示都与实际一致。
@@ -34,9 +34,6 @@
 // 注意：官方登录项只给打包后的独立 App，`nsh run` 下读 false、写入报不可用。
 
 use std::path::Path;
-
-/// 与 `main.rs` 的 `AppOptions::app_id` 保持一致，用作 macOS / Linux 的登记标识
-pub const APP_ID: &str = "com.reminder.app";
 
 /// 登录项里显示的名字
 pub const DISPLAY_NAME: &str = "reminder";
@@ -209,7 +206,7 @@ fn launch_agent_plist(exe: &Path) -> String {
 </dict>
 </plist>
 "#,
-        label = xml_escape(APP_ID),
+        label = xml_escape(crate::APP_ID),
         program = xml_escape(&exe.display().to_string())
     )
 }
@@ -229,8 +226,8 @@ mod windows_imp {
 
     /// 当前用户的登录启动项（无需管理员权限）
     pub(super) const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
-    /// 启动项里的值名，卸载或关闭时按它删除
-    pub(super) const VALUE_NAME: &str = "reminder";
+    /// 启动项里的值名，卸载或关闭时按它删除；与 macOS / Linux 的登记项同一个标识
+    pub(super) const VALUE_NAME: &str = crate::APP_ID;
 
     pub(super) fn launch_target() -> Option<PathBuf> {
         std::env::current_exe().ok()
@@ -387,13 +384,15 @@ mod macos_imp {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use super::{APP_ID, launch_agent_plist, xml_escape};
+    use crate::APP_ID;
+
+    use super::{launch_agent_plist, xml_escape};
 
     pub(super) fn launch_target() -> Option<PathBuf> {
         std::env::current_exe().ok()
     }
 
-    /// `~/Library/LaunchAgents/com.reminder.app.plist`
+    /// `~/Library/LaunchAgents/<APP_ID>.plist`
     pub(super) fn agent_path() -> Option<PathBuf> {
         let home = std::env::var_os("HOME")?;
         Some(
@@ -448,7 +447,9 @@ mod linux_imp {
     use std::fs;
     use std::path::{Path, PathBuf};
 
-    use super::{APP_ID, autostart_entry, desktop_exec};
+    use crate::APP_ID;
+
+    use super::{autostart_entry, desktop_exec};
 
     /// AppImage 启动器会把真实镜像路径放在 `$APPIMAGE` 里，
     /// 此时 `current_exe` 指向临时挂载点，不能写进启动项
@@ -540,6 +541,7 @@ use unsupported_imp as imp;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::APP_ID;
 
     #[test]
     fn unsupported_platforms_report_themselves() {
@@ -707,7 +709,7 @@ mod tests {
     /// 登记、换路径后的失效判断、移除、二次移除
     #[test]
     fn macos_agent_file_roundtrip() {
-        let path = temp_path("macos", "com.reminder.app.plist");
+        let path = temp_path("macos", &format!("{APP_ID}.plist"));
         let exe = Path::new("/Applications/reminder.app/Contents/MacOS/reminder");
 
         assert!(!macos_imp::is_enabled_at(&path, exe));
@@ -733,7 +735,7 @@ mod tests {
     /// Linux 的 XDG autostart 入口文件同样在本机跑一遍
     #[test]
     fn linux_autostart_file_roundtrip() {
-        let path = temp_path("linux", "com.reminder.app.desktop");
+        let path = temp_path("linux", &format!("{APP_ID}.desktop"));
         let exe = Path::new("/home/by/Applications/reminder");
 
         assert!(!linux_imp::is_enabled_at(&path, exe));
