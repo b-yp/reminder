@@ -87,7 +87,7 @@ fn set_window_opacity(_opacity: f32) {}
 
 
 
-/// macOS 挂件专用配置：在主线程剥离窗口边框、隐藏交通灯并启用透明底色与阴影
+/// macOS 挂件专用配置：在主线程剥离窗口边框、隐藏交通灯，并让原生阴影跟随圆角卡片
 #[cfg(target_os = "macos")]
 fn configure_macos_window() {
     use platform::objc2::MainThreadMarker;
@@ -120,11 +120,12 @@ fn configure_macos_window() {
             btn.setHidden(true);
         }
 
-        // 3. 设置窗口底层为 100% 透明，彻底剥离 macOS 默认窗口灰色背景与边框
+        // 3. 窗口底色再压一次透明：真正生效的是 `WindowAttributes::transparent`
+        //    （NSH 会连根容器视图的底色一起清掉），这里防止改 styleMask 后 AppKit 恢复默认底色
         window.setOpaque(false);
         window.setBackgroundColor(Some(&NSColor::clearColor()));
 
-        // 4. 启用原生系统阴影与背景随意拖拽
+        // 4. 原生阴影跟着窗口形状（圆角卡片）走：内容画出来后重新失效一次
         window.setHasShadow(true);
         window.setMovableByWindowBackground(true);
         window.invalidateShadow();
@@ -253,7 +254,7 @@ pub const WINDOW_HEIGHT: f32 = 350.0;
 pub const MINI_WIDTH: f32 = 196.0;
 pub const MINI_HEIGHT: f32 = 44.0;
 
-/// 仅设置「置顶悬浮」层级的窗口属性，设置极小 min_size 防止 Win32 限制最小追踪尺寸
+/// 挂件窗口的 NSH 属性：置顶悬浮 + 无系统边框，并设极小 min_size 防止 Win32 限制最小追踪尺寸
 /// （`WindowAttributes` 为 `non_exhaustive`，故用 Default 赋值而非结构体字面量）
 fn floating_window_attributes() -> WindowAttributes {
     let mut attributes = WindowAttributes::default();
@@ -262,6 +263,13 @@ fn floating_window_attributes() -> WindowAttributes {
     attributes.min_size = Some(Some(size(px(100.0), px(36.0))));
     // 关闭请求先交给 App：挂件不是普通文档窗口，点叉号只收进托盘，不结束进程
     attributes.close_on_press = Some(false);
+    // macOS 没有系统托管的窗口圆角（Win11 的 DWM 会裁掉四角），窗口自带的那层
+    // 不透明底色会把根视图圆角外的四角填成直角。交给 NSH 的 transparent：
+    // 它同时清掉窗口与容器视图的底色，四角才真正透出桌面。
+    #[cfg(target_os = "macos")]
+    {
+        attributes.transparent = Some(true);
+    }
     attributes
 }
 
@@ -3049,6 +3057,14 @@ mod tests {
         assert!(MINI_HEIGHT < WINDOW_HEIGHT);
         assert_eq!(MINI_WIDTH, 196.0);
         assert_eq!(MINI_HEIGHT, 44.0);
+    }
+
+    /// macOS 没有系统托管的窗口圆角：窗口必须声明透明，根视图圆角外的四角才不会被
+    /// 窗口底色填成直角（Windows 由 DWM 裁剪窗口四角，不需要）。
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_widget_window_is_transparent() {
+        assert_eq!(floating_window_attributes().transparent, Some(true));
     }
 
     #[test]
