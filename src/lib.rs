@@ -1,6 +1,6 @@
 //! The app's Rust UI: reminder 桌面通用健康与生活提醒悬浮挂件
 //! 纯 Rust 编写、完全遵循 NSH 官方设计规范与 shadcn/ui 主题系统、支持明暗主题自由切换与跟随系统、
-//! 支持随意拖拽、矢量环形进度图标、全局热键一键隐藏 / 呼出悬浮窗、登录系统自动启动
+//! 支持随意拖拽、矢量环形进度图标、全局热键一键隐藏 / 呼出悬浮窗、关闭收进托盘继续提醒、登录系统自动启动
 
 pub mod autostart;
 pub mod hotkey;
@@ -260,7 +260,23 @@ fn floating_window_attributes() -> WindowAttributes {
     attributes.level = Some(WindowLevel::Floating);
     attributes.frame = Some(WindowFrameStyle::None);
     attributes.min_size = Some(Some(size(px(100.0), px(36.0))));
+    // 关闭请求先交给 App：挂件不是普通文档窗口，点叉号只收进托盘，不结束进程
+    attributes.close_on_press = Some(false);
     attributes
+}
+
+/// 顶栏叉号、Alt+F4、任务栏关闭等请求都只收进托盘，绝不结束进程。
+/// 真正退出只放在托盘菜单里；系统关机 / 注销由平台结束进程，不需要窗口先关。
+fn hide_to_tray() {
+    desktop::main_window().hide();
+}
+
+/// 托盘菜单里的退出项：只写「退出」；退出后进程结束，提醒自然停止。
+const TRAY_EXIT_LABEL: &str = "退出";
+
+/// 托盘菜单第一项跟随窗口可见性：看得见就给「隐藏窗口」，看不见就给「显示窗口」。
+fn tray_window_label(visible: bool) -> &'static str {
+    if visible { "隐藏窗口" } else { "显示窗口" }
 }
 
 /// 触发倒计时到期提醒（声音、系统原生通知、窗口置顶唤起）
@@ -362,18 +378,6 @@ pub fn App() -> impl IntoElement {
     // 2. 窗口原生桌面属性：置顶悬浮 (Floating)
     desktop::main_window().set(floating_window_attributes());
 
-    // 配置 Windows / macOS 系统托盘与状态栏通知区域图标及单击唤起
-    // （挂件被全局热键收起后，托盘图标是把它找回来的入口）
-    desktop::set_tray(Some(
-        desktop::tray()
-            .icon(LOGO)
-            .tooltip("reminder 提醒 · 全局热键隐藏 / 呼出")
-            .on_click(|_| {
-                desktop::main_window().show();
-                desktop::main_window().focus();
-            }),
-    ));
-
     // 3. 恢复上次摆放与尺寸：窗口摆放交给 NSH 的 placement（逻辑点），显示器拔插后自动贴回可见区域
     let window_size = size(px(init_w), px(init_h));
     match initial_state.window_placement {
@@ -425,6 +429,49 @@ pub fn App() -> impl IntoElement {
             );
         }
     };
+
+    // 系统托盘：左键唤回窗口，右键菜单是唯一真正的退出入口。
+    // 第一项跟随窗口可见性在「显示窗口 / 隐藏窗口」之间切换；退出项只写「退出」。
+    let window_visible = computed(move || {
+        desktop::main_window()
+            .state()
+            .is_some_and(|state| state.visible)
+    });
+    effect(move || {
+        let visible = window_visible.get();
+        desktop::set_tray(Some(
+            desktop::tray()
+                .icon(LOGO)
+                .tooltip("reminder 提醒 · 点击显示窗口")
+                .menu([
+                    desktop::MenuItem::new(tray_window_label(visible)).on_select(move || {
+                        if visible {
+                            save_app_state();
+                            hide_to_tray();
+                        } else {
+                            desktop::main_window().show();
+                            desktop::main_window().focus();
+                        }
+                    }),
+                    desktop::MenuItem::separator(),
+                    desktop::MenuItem::new(TRAY_EXIT_LABEL).on_select(move || {
+                        save_app_state();
+                        desktop::quit();
+                    }),
+                ])
+                .on_click(|_| {
+                    desktop::main_window().show();
+                    desktop::main_window().focus();
+                }),
+        ));
+    });
+
+    // 顶栏叉号、Alt+F4、任务栏关闭等请求先到这里：保存后收进托盘，提醒计时继续。
+    // 系统注销 / 关机由平台结束进程；窗口关闭本身永远不退出应用。
+    desktop::main_window().on_close_press(move |_reason| {
+        save_app_state();
+        hide_to_tray();
+    });
 
     // 主题与底层平台/渲染器联动：切换 NSH 官方色彩方案与系统外观，并在后续改动时自动保存
     let theme_initialized = stored(false);
@@ -599,7 +646,7 @@ fn render_full_card(
         .p(px(14.0))
         .flex_col()
         .justify_between()
-        // 1. 顶栏：通用「reminder 提醒」金黄微标与标题，右侧挂件操作按钮组（暂停、设置、收起胶囊、关闭）
+        // 1. 顶栏：通用「reminder 提醒」金黄微标与标题，右侧挂件操作按钮组（暂停、设置、收起胶囊、收进托盘）
         .child(render_header(items, is_all_paused, show_settings, on_enter_mini, on_save))
         // 2. 核心内容滚动区：抽屉展开与列表统一容纳，高了自行平滑滚动，大窗口全程稳定
         .child(
@@ -783,7 +830,7 @@ fn render_mini_capsule(
                         ),
                 ),
         )
-        // 右侧操作按钮组（快捷打卡、展开为卡片、关闭）
+        // 右侧操作按钮组（快捷打卡、展开为卡片）
         .child(
             view()
                 .window_drag(false) // 按钮区域不触发拖拽
@@ -867,7 +914,7 @@ fn render_mini_capsule(
         )
 }
 
-/// 顶部 Header：左侧金黄微标与标题，右侧挂件操作按钮组（暂停、设置/添加、收起为胶囊、关闭退出）
+/// 顶部 Header：左侧金黄微标与标题，右侧挂件操作按钮组（暂停、设置/添加、收起为胶囊、收进托盘）
 fn render_header(
     items: Signal<Vec<ReminderItem>>,
     is_all_paused: Signal<bool>,
@@ -914,7 +961,7 @@ fn render_header(
                         ),
                 ),
         )
-        // 右侧挂件专属操作按钮组：暂停/恢复全部、展开设置/新建抽屉、关闭退出挂件
+        // 右侧挂件专属操作按钮组：暂停/恢复全部、展开设置/新建抽屉、收进托盘
         .child(
             view()
                 .window_drag(false) // 按钮区域不触发窗口拖拽
@@ -1004,9 +1051,10 @@ fn render_header(
                             ),
                         ),
                 )
-                // 退出挂件 (轻量悬浮叉叉)
+                // 收进托盘（不是退出）：提醒计时与托盘图标继续运行，退出只放在托盘菜单里
                 .child(
                     view()
+                        .test_id("hide-to-tray-btn")
                         .w(px(22.0))
                         .h(px(22.0))
                         .rounded(px(5.0))
@@ -1014,9 +1062,25 @@ fn render_header(
                         .justify_center()
                         .bg(move || theme().secondary)
                         .active(|s| s.opacity(0.5))
+                        .role(AccessibilityRole::Button)
+                        .label("收进托盘，继续提醒")
+                        .tooltip(
+                            view()
+                                .px(px(8.0))
+                                .py(px(4.0))
+                                .rounded(px(6.0))
+                                .bg(move || theme().popover)
+                                .border_1()
+                                .border_color(move || theme().border)
+                                .child(
+                                    text("收进托盘，继续提醒")
+                                        .text_size(px(11.0))
+                                        .text_color(move || theme().popover_foreground),
+                                ),
+                        )
                         .on_press(move || {
                             on_save();
-                            desktop::main_window().close();
+                            hide_to_tray();
                         })
                         .child(
                             icons::icon_svg(icons::ICON_X, 11.0, move || theme().muted_foreground),
@@ -2953,6 +3017,23 @@ mod tests {
         assert_eq!(clamp_opacity(0.85), 0.85);
         assert_eq!(clamp_opacity(1.0), 1.0);
         assert_eq!(clamp_opacity(1.5), 1.0);
+    }
+
+    #[test]
+    fn close_button_is_reported_to_the_app_instead_of_closing_the_window() {
+        // 平台先报告 closePress，由 App 收进托盘；这是「点叉号不退出」的底层开关
+        assert_eq!(floating_window_attributes().close_on_press, Some(false));
+    }
+
+    #[test]
+    fn tray_window_label_follows_visibility() {
+        assert_eq!(tray_window_label(true), "隐藏窗口");
+        assert_eq!(tray_window_label(false), "显示窗口");
+    }
+
+    #[test]
+    fn tray_exit_label_is_just_quit() {
+        assert_eq!(TRAY_EXIT_LABEL, "退出");
     }
 
     #[test]
