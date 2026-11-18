@@ -15,7 +15,8 @@ mod switch;
 
 pub use badge::{BadgeTone, status_badge};
 pub use button::{
-    ActionTone, action_button, icon_button, micro_button, step_button, text_button, undo_button,
+    ActionTone, action_button, dynamic_tooltip_bubble, icon_button, micro_button, step_button,
+    text_button, tooltip_bubble, undo_button,
 };
 pub use choice::{choice_chip, choice_grid, choice_group, icon_choice, segment_toggle};
 pub use disclosure::disclosure_row;

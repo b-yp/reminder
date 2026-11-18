@@ -13,7 +13,7 @@ pub enum ActionTone {
     /// 当前该做的事：金黄浅底 + 金描边（打卡）。
     Accent,
 }
-/// 顶栏与迷你胶囊里的方形图标按钮：22×22，圆角 5。
+/// 顶栏与迷你胶囊里的方形图标按钮：24×24，圆角 6（扩充热区与防误触）。
 ///
 /// `selected` 只表达「这个按钮对应的面板正开着」，颜色与语义都由这里给。
 /// `disabled` 表达该动作当前是否不可用，禁用时呈现透明度淡化并阻止触发。
@@ -29,9 +29,9 @@ pub fn icon_button(
         .accessibility_label(label)
         .selected(selected)
         .disabled(disabled)
-        .w(px(22.0))
-        .h(px(22.0))
-        .rounded(px(5.0))
+        .w(px(24.0))
+        .h(px(24.0))
+        .rounded(px(6.0))
         .flex_row()
         .items_center()
         .justify_center()
@@ -59,13 +59,16 @@ pub fn icon_button(
                 }
             })
         })
-        .active(|s| s.scale(0.96).opacity(0.9))
+        .active(|s| s.scale(0.94).opacity(0.88))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
         .disabled_style(|s| s.opacity(0.35))
+        .transition_transform()
         .transition_colors()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { 120.0_f32 })
         .on_press(move || on_press())
         .child(content)
 }
+
 /// 提醒行里的动作按钮：28×24（打卡、延期）或 22×24（删除）。
 /// `tone` 是响应式的：同一颗按钮会随行状态（逾期 / 常态）换语气。
 pub fn action_button(
@@ -99,12 +102,50 @@ pub fn action_button(
             ActionTone::Quiet => s.bg(move || theme().muted),
             ActionTone::Accent => s.opacity(0.92),
         })
-        .active(|s| s.scale(0.96).opacity(0.88))
+        .active(|s| s.scale(0.92).opacity(0.85))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
         .disabled_style(|s| s.opacity(0.35))
+        .transition_transform()
         .transition_colors()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { 120.0_f32 })
         .on_press(move || on_press())
         .child(content)
+}
+
+/// 通用气泡提示：用于挂在控件的 `.tooltip(...)` 上
+pub fn tooltip_bubble(label: &'static str) -> AnyElement {
+    view()
+        .px(px(8.0))
+        .py(px(4.0))
+        .rounded(px(6.0))
+        .bg(move || theme().popover)
+        .border_1()
+        .border_color(move || theme().border)
+        .shadow_sm()
+        .child(
+            text(label)
+                .text_size(px(11.0))
+                .text_color(move || theme().popover_foreground),
+        )
+        .into_element()
+}
+
+/// 响应式动态气泡提示
+pub fn dynamic_tooltip_bubble(label: impl Fn() -> &'static str + 'static) -> AnyElement {
+    view()
+        .px(px(8.0))
+        .py(px(4.0))
+        .rounded(px(6.0))
+        .bg(move || theme().popover)
+        .border_1()
+        .border_color(move || theme().border)
+        .shadow_sm()
+        .child(
+            text(label)
+                .text_size(px(11.0))
+                .text_color(move || theme().popover_foreground),
+        )
+        .into_element()
 }
 /// 行内小胶囊按钮：提醒行里的周期徽标（点一下轮换间隔）。
 pub fn micro_button(

@@ -1010,26 +1010,30 @@ fn render_mini_capsule(
                 .items_center()
                 .gap(px(4.0))
                 // 快捷打卡对勾按钮（特别是在到期时一键打卡；无任务时处于禁用态）
-                .child(ui::icon_button(
-                    "打卡完成",
-                    move || {
-                        active_item_info
-                            .with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired()))
-                    },
-                    move || active_item_info.get().is_none(),
-                    move || {
-                        if let Some((idx, _, _)) = active_item_info.get() {
-                            let now = localtime::now();
-                            items.update(|list| {
-                                if idx < list.len() {
-                                    list[idx].complete(&now);
+                .child(
+                    view()
+                        .child(ui::icon_button(
+                            "打卡完成",
+                            move || {
+                                active_item_info
+                                    .with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired()))
+                            },
+                            move || active_item_info.get().is_none(),
+                            move || {
+                                if let Some((idx, _, _)) = active_item_info.get() {
+                                    let now = localtime::now();
+                                    items.update(|list| {
+                                        if idx < list.len() {
+                                            list[idx].complete(&now);
+                                        }
+                                    });
+                                    on_save();
                                 }
-                            });
-                            on_save();
-                        }
-                    },
-                    icons::icon_svg(icons::ICON_CHECK, 12.0, move || theme().muted_foreground),
-                ))
+                            },
+                            icons::icon_svg(icons::ICON_CHECK, 12.0, move || theme().muted_foreground),
+                        ))
+                        .tooltip(ui::tooltip_bubble("完成当前打卡")),
+                )
                 // 展开为大卡片按钮
                 .child(
                     view()
@@ -1044,7 +1048,8 @@ fn render_mini_capsule(
                                 11.0,
                                 move || theme().muted_foreground,
                             ),
-                        )),
+                        ))
+                        .tooltip(ui::tooltip_bubble("展开为完整卡片")),
                 ),
         )
 }
@@ -1104,20 +1109,30 @@ fn render_header(
                 .items_center()
                 .gap(px(6.0))
                 // 暂停 / 播放全部
-                .child(ui::icon_button(
-                    "暂停或恢复全部提醒",
-                    move || is_all_paused.get(),
-                    || false,
-                    move || {
-                        is_all_paused.update(|v| *v = !*v);
-                        on_save();
-                    },
-                    when(
-                        move || is_all_paused.get(),
-                        move || icons::icon_svg(icons::ICON_PLAY, 11.0, ACCENT_GOLD),
-                    )
-                    .otherwise(move || icons::icon_svg(icons::ICON_PAUSE, 11.0, move || theme().muted_foreground)),
-                ))
+                .child(
+                    view()
+                        .child(ui::icon_button(
+                            "暂停或恢复全部提醒",
+                            move || is_all_paused.get(),
+                            || false,
+                            move || {
+                                is_all_paused.update(|v| *v = !*v);
+                                on_save();
+                            },
+                            when(
+                                move || is_all_paused.get(),
+                                move || icons::icon_svg(icons::ICON_PLAY, 11.0, ACCENT_GOLD),
+                            )
+                            .otherwise(move || icons::icon_svg(icons::ICON_PAUSE, 11.0, move || theme().muted_foreground)),
+                        ))
+                        .tooltip(ui::dynamic_tooltip_bubble(move || {
+                            if is_all_paused.get() {
+                                "恢复全部提醒"
+                            } else {
+                                "暂停全部提醒"
+                            }
+                        })),
+                )
                 // 设置 / 新建
                 .child(
                     view()
@@ -1138,20 +1153,25 @@ fn render_header(
                                     }
                                 },
                             ),
-                        )),
+                        ))
+                        .tooltip(ui::tooltip_bubble("设置与新建提醒")),
                 )
                 // 收起为迷你灵动岛胶囊
-                .child(ui::icon_button(
-                    "收起为迷你胶囊",
-                    || false,
-                    || false,
-                    on_enter_mini,
-                    icons::icon_svg(
-                        icons::ICON_MINIMIZE,
-                        11.0,
-                        move || theme().muted_foreground,
-                    ),
-                ))
+                .child(
+                    view()
+                        .child(ui::icon_button(
+                            "收起为迷你胶囊",
+                            || false,
+                            || false,
+                            on_enter_mini,
+                            icons::icon_svg(
+                                icons::ICON_MINIMIZE,
+                                11.0,
+                                move || theme().muted_foreground,
+                            ),
+                        ))
+                        .tooltip(ui::tooltip_bubble("收起为迷你胶囊")),
+                )
                 // 收进托盘（不是退出）：提醒计时与托盘图标继续运行，退出只放在托盘菜单里
                 .child(
                     view()
@@ -1166,20 +1186,7 @@ fn render_header(
                             },
                             icons::icon_svg(icons::ICON_X, 11.0, move || theme().muted_foreground),
                         ))
-                        .tooltip(
-                            view()
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .rounded(px(6.0))
-                                .bg(move || theme().popover)
-                                .border_1()
-                                .border_color(move || theme().border)
-                                .child(
-                                    text("收进托盘，继续提醒")
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().popover_foreground),
-                                ),
-                        ),
+                        .tooltip(ui::tooltip_bubble("收进托盘，继续提醒")),
                 ),
         )
 }
@@ -1411,22 +1418,26 @@ fn render_item_row(
                 )
                 // 打卡：行内唯一的强调动作（金黄浅底，逾期也不换颜色，
                 // 逾期由行底 wash 与红色倒计时承担）
-                .child(ui::action_button(
-                    "打卡完成",
-                    28.0,
-                    || ui::ActionTone::Accent,
-                    || false,
-                    move || {
-                        let now = localtime::now();
-                        items.update(|list| {
-                            if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
-                                it.complete(&now);
-                            }
-                        });
-                        on_save();
-                    },
-                    icons::icon_svg(icons::ICON_CHECK, 12.0, ACCENT_GOLD),
-                ))
+                .child(
+                    view()
+                        .child(ui::action_button(
+                            "打卡完成",
+                            28.0,
+                            || ui::ActionTone::Accent,
+                            || false,
+                            move || {
+                                let now = localtime::now();
+                                items.update(|list| {
+                                    if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
+                                        it.complete(&now);
+                                    }
+                                });
+                                on_save();
+                            },
+                            icons::icon_svg(icons::ICON_CHECK, 12.0, ACCENT_GOLD),
+                        ))
+                        .tooltip(ui::tooltip_bubble("完成打卡")),
+                )
                 // 延后与删除收进「⋯」菜单：删除触发底部撤销 Toast
                 .child(ui::row_menu(
                     move || item_sig.get().is_done_today(&localtime::now()),
@@ -1494,43 +1505,69 @@ fn render_undo_toast(
                 .child(
                     view()
                         .w_full()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(8.0))
+                        .flex_col()
+                        .gap(px(5.0))
                         .on_mouse_enter(move |_: &MouseEvent| is_hovered.set(true))
                         .on_mouse_leave(move |_: &MouseEvent| is_hovered.set(false))
-                        // 左侧：垃圾桶图标 + 提示文字（超出截断省略）
                         .child(
                             view()
+                                .w_full()
                                 .flex_row()
                                 .items_center()
-                                .gap(px(6.0))
-                                .flex_1()
-                                .overflow_hidden()
-                                .child(icons::icon_svg(
-                                    icons::ICON_TRASH,
-                                    12.0,
-                                    move || theme().muted_foreground,
-                                ))
+                                .justify_between()
+                                .gap(px(8.0))
+                                // 左侧：垃圾桶图标 + 提示文字（超出截断省略）
                                 .child(
-                                    text(format!("已删除「{name}」"))
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().popover_foreground)
-                                        .truncate(),
+                                    view()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .flex_1()
+                                        .overflow_hidden()
+                                        .child(icons::icon_svg(
+                                            icons::ICON_TRASH,
+                                            12.0,
+                                            move || theme().muted_foreground,
+                                        ))
+                                        .child(
+                                            text(format!("已删除「{name}」"))
+                                                .text_size(px(11.0))
+                                                .text_color(move || theme().popover_foreground)
+                                                .truncate(),
+                                        ),
+                                )
+                                // 右侧：撤销按钮 + 倒计时
+                                .child(
+                                    view()
+                                        .flex_row()
+                                        .items_center()
+                                        .gap(px(6.0))
+                                        .child(ui::undo_button("撤销", move || on_undo()))
+                                        .child(
+                                            text(move || format!("{}s", remaining.get()))
+                                                .text_size(px(10.0))
+                                                .text_color(move || theme().muted_foreground),
+                                        ),
                                 ),
                         )
-                        // 右侧：撤销按钮 + 倒计时
+                        // 底部微细倒计时进度条（Sonner / Apple 风格：平滑流逝，悬停暂停时自动定格）
                         .child(
                             view()
-                                .flex_row()
-                                .items_center()
-                                .gap(px(6.0))
-                                .child(ui::undo_button("撤销", move || on_undo()))
+                                .w_full()
+                                .h(px(2.0))
+                                .rounded_full()
+                                .bg(move || theme().muted.opacity(0.40))
                                 .child(
-                                    text(move || format!("{}s", remaining.get()))
-                                        .text_size(px(10.0))
-                                        .text_color(move || theme().muted_foreground),
+                                    view()
+                                        .h_full()
+                                        .rounded_full()
+                                        .bg(ACCENT_GOLD)
+                                        .w(move || {
+                                            let ratio = remaining.get() as f32 / UNDO_SECONDS as f32;
+                                            px(272.0 * ratio.clamp(0.0, 1.0))
+                                        })
+                                        .transition_all()
+                                        .duration(move || if reduce_motion() { 0.0_f32 } else { 300.0_f32 }),
                                 ),
                         ),
                 ),
