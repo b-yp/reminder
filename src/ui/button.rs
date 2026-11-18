@@ -16,9 +16,11 @@ pub enum ActionTone {
 /// 顶栏与迷你胶囊里的方形图标按钮：22×22，圆角 5。
 ///
 /// `selected` 只表达「这个按钮对应的面板正开着」，颜色与语义都由这里给。
+/// `disabled` 表达该动作当前是否不可用，禁用时呈现透明度淡化并阻止触发。
 pub fn icon_button(
     label: &'static str,
     selected: impl Fn() -> bool + Copy + 'static,
+    disabled: impl Fn() -> bool + Copy + 'static,
     on_press: impl Fn() + 'static,
     content: impl IntoElement,
 ) -> impl IntoElement {
@@ -26,6 +28,7 @@ pub fn icon_button(
         .role(AccessibilityRole::Button)
         .accessibility_label(label)
         .selected(selected)
+        .disabled(disabled)
         .w(px(22.0))
         .h(px(22.0))
         .rounded(px(5.0))
@@ -58,6 +61,7 @@ pub fn icon_button(
         })
         .active(|s| s.scale(0.96).opacity(0.9))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .disabled_style(|s| s.opacity(0.35))
         .transition_colors()
         .on_press(move || on_press())
         .child(content)

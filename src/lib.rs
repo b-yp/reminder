@@ -811,7 +811,15 @@ fn render_full_card(
                             on_save,
                         ))
                         // 核心提醒列表
-                        .child(render_items(items, on_save, on_delete)),
+                        .child(render_items(
+                            items,
+                            move || {
+                                show_settings.set(true);
+                                show_presets.set(true);
+                            },
+                            on_save,
+                            on_delete,
+                        )),
                 ),
         )
         // 3. 底部状态行（「进行中 X 项 · 今日打卡 Y 次」，若处于半透明状态则额外指示不透明度；
@@ -910,17 +918,22 @@ fn render_mini_capsule(
             view()
                 .window_drag(true)
                 .flex_1()
+                .min_w(px(0.0))
                 .h_full()
                 .justify_center()
                 .px(px(6.0))
                 .child(
                     view()
+                        .w_full()
+                        .min_w(px(0.0))
                         .flex_col()
                         .justify_center()
                         .gap(px(1.0))
                         // 上行：任务名称与多项小指示
                         .child(
                             view()
+                                .w_full()
+                                .min_w(px(0.0))
                                 .flex_row()
                                 .items_center()
                                 .gap(px(4.0))
@@ -933,7 +946,8 @@ fn render_mini_capsule(
                                         }
                                     })
                                     .text_size(px(12.0))
-                                    .text_color(move || theme().foreground),
+                                    .text_color(move || theme().foreground)
+                                    .truncate(),
                                 )
                                 .child(
                                     when(
@@ -946,6 +960,7 @@ fn render_mini_capsule(
                                                     })
                                                 })
                                             })
+                                            .flex_shrink_0()
                                             .text_size(px(9.5))
                                             .text_color(move || theme().muted_foreground)
                                         },
@@ -990,16 +1005,18 @@ fn render_mini_capsule(
         .child(
             view()
                 .window_drag(false) // 按钮区域不触发拖拽
+                .flex_shrink_0()
                 .flex_row()
                 .items_center()
                 .gap(px(4.0))
-                // 快捷打卡对勾按钮（特别是在到期时一键打卡）
+                // 快捷打卡对勾按钮（特别是在到期时一键打卡；无任务时处于禁用态）
                 .child(ui::icon_button(
                     "打卡完成",
                     move || {
                         active_item_info
                             .with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired()))
                     },
+                    move || active_item_info.get().is_none(),
                     move || {
                         if let Some((idx, _, _)) = active_item_info.get() {
                             let now = localtime::now();
@@ -1019,6 +1036,7 @@ fn render_mini_capsule(
                         .test_id("expand-mini-btn")
                         .child(ui::icon_button(
                             "展开为卡片",
+                            || false,
                             || false,
                             on_expand,
                             icons::icon_svg(
@@ -1089,6 +1107,7 @@ fn render_header(
                 .child(ui::icon_button(
                     "暂停或恢复全部提醒",
                     move || is_all_paused.get(),
+                    || false,
                     move || {
                         is_all_paused.update(|v| *v = !*v);
                         on_save();
@@ -1106,6 +1125,7 @@ fn render_header(
                         .child(ui::icon_button(
                             "设置与新建提醒",
                             move || show_settings.get(),
+                            || false,
                             move || show_settings.update(|v| *v = !*v),
                             icons::dynamic_icon_svg(
                                 move || icons::ICON_SETTINGS,
@@ -1124,6 +1144,7 @@ fn render_header(
                 .child(ui::icon_button(
                     "收起为迷你胶囊",
                     || false,
+                    || false,
                     on_enter_mini,
                     icons::icon_svg(
                         icons::ICON_MINIMIZE,
@@ -1137,6 +1158,7 @@ fn render_header(
                         .test_id("hide-to-tray-btn")
                         .child(ui::icon_button(
                             "收进托盘，继续提醒",
+                            || false,
                             || false,
                             move || {
                                 on_save();
@@ -1162,22 +1184,74 @@ fn render_header(
         )
 }
 
-/// 核心列表：基于 each 原语基于 key 响应式高效追踪每个 item 的变化
+/// 核心列表：当列表为空时展示精致的空状态引导；有任务时基于 each 原语基于 key 响应式高效追踪每个 item 的变化
 fn render_items(
     items: Signal<Vec<ReminderItem>>,
+    on_add_preset: impl Fn() + Copy + 'static,
     on_save: impl Fn() + Copy + 'static,
     on_delete: impl Fn(u64) + Copy + 'static,
 ) -> impl IntoElement {
+    when(
+        move || items.with(|list| list.is_empty()),
+        move || render_empty_state(on_add_preset),
+    )
+    .otherwise(move || {
+        view()
+            .window_drag(true)
+            .w_full()
+            .flex_col()
+            .gap(px(6.0))
+            .child(each(
+                items,
+                |item| item.id,
+                move |item_sig, _| render_item_row(item_sig, items, on_save, on_delete),
+            ))
+    })
+}
+
+/// 列表为空时的空状态展示：轻量金黄微标、友好文案与直达预设的快捷按钮（防信息断崖）
+fn render_empty_state(on_add: impl Fn() + Copy + 'static) -> impl IntoElement {
     view()
         .window_drag(true)
         .w_full()
+        .py(px(26.0))
+        .px(px(16.0))
         .flex_col()
-        .gap(px(6.0))
-        .child(each(
-            items,
-            |item| item.id,
-            move |item_sig, _| render_item_row(item_sig, items, on_save, on_delete),
-        ))
+        .items_center()
+        .justify_center()
+        .gap(px(8.0))
+        .child(
+            view()
+                .w(px(38.0))
+                .h(px(38.0))
+                .rounded_full()
+                .bg(ACCENT_GOLD_BG)
+                .items_center()
+                .justify_center()
+                .child(icons::icon_svg(icons::ICON_BELL, 18.0, ACCENT_GOLD)),
+        )
+        .child(
+            view()
+                .flex_col()
+                .items_center()
+                .gap(px(2.0))
+                .child(
+                    text("暂无进行中的提醒")
+                        .text_size(px(12.5))
+                        .text_color(move || theme().foreground),
+                )
+                .child(
+                    text("添加喝水、久坐活动等习惯开始提醒")
+                        .text_size(px(10.5))
+                        .text_color(move || theme().muted_foreground),
+                ),
+        )
+        .child(
+            view()
+                .pt(px(4.0))
+                .window_drag(false)
+                .child(ui::text_button("添加常用提醒", true, on_add)),
+        )
 }
 
 /// 单个提醒行：左侧发光进度图标 + 中间名称倒计时 + 完成次数 + 右侧 [✓] [+5] [🗑]
@@ -1192,6 +1266,7 @@ fn render_item_row(
 
     view()
         .window_drag(true)
+        .w_full()
         .flex_row()
         .items_center()
         .justify_between()
@@ -1206,15 +1281,18 @@ fn render_item_row(
                 AdaptiveColor::TRANSPARENT
             }
         })
-        // 左半部分：圆环进度图标 + 标题/时间
+        // 左半部分：圆环进度图标 + 标题/时间（弹性收缩且 min_w(0)，防长文本挤压右侧操作区）
         .child(
             view()
+                .flex_1()
+                .min_w(px(0.0))
                 .flex_row()
                 .items_center()
-                .gap(px(10.0))
+                .gap(px(8.0))
                 // 左侧发光圆环进度图标（到期时红光警示，SVG 底轨原生自适应明暗）
                 .child(
                     view()
+                        .flex_shrink_0()
                         .w(px(36.0))
                         .h(px(36.0))
                         .items_center()
@@ -1236,53 +1314,61 @@ fn render_item_row(
                 // 标题与倒计时（包含周期微标，点击周期可快速切换常见时长，到期时红字警示）
                 .child(
                     view()
+                        .flex_1()
+                        .min_w(px(0.0))
                         .flex_col()
                         .justify_center()
                         .gap(px(2.0))
                         .child(
                             view()
+                                .w_full()
+                                .min_w(px(0.0))
                                 .flex_row()
                                 .items_center()
                                 .gap(px(5.0))
                                 .child(
                                     text(move || item_sig.get().name.clone())
                                         .text_size(px(13.0))
-                                        .text_color(move || theme().foreground),
+                                        .text_color(move || theme().foreground)
+                                        .truncate(),
                                 )
                                 .child(
-                                    view().window_drag(false).child(ui::micro_button(
-                                        move || item_sig.get().format_badge(),
-                                        "切换提醒周期",
-                                        move || {
-                                            let mut changed = false;
-                                            items.update(|list| {
-                                                if let Some(it) =
-                                                    list.iter_mut().find(|x| x.id == item_id)
-                                                {
-                                                    // 定点提醒按墙上时间走，不参与「点击轮换间隔」
-                                                    if !it.is_daily() {
-                                                        let cur_m = it.interval_secs / 60;
-                                                        let next_m = match cur_m {
-                                                            0..=19 => 20,
-                                                            20..=24 => 25,
-                                                            25..=29 => 30,
-                                                            30..=44 => 45,
-                                                            45..=59 => 60,
-                                                            60..=89 => 90,
-                                                            90..=119 => 120,
-                                                            _ => 15,
-                                                        };
-                                                        it.update_interval_mins(next_m);
-                                                        changed = true;
+                                    view()
+                                        .flex_shrink_0()
+                                        .window_drag(false)
+                                        .child(ui::micro_button(
+                                            move || item_sig.get().format_badge(),
+                                            "切换提醒周期",
+                                            move || {
+                                                let mut changed = false;
+                                                items.update(|list| {
+                                                    if let Some(it) =
+                                                        list.iter_mut().find(|x| x.id == item_id)
+                                                    {
+                                                        // 定点提醒按墙上时间走，不参与「点击轮换间隔」
+                                                        if !it.is_daily() {
+                                                            let cur_m = it.interval_secs / 60;
+                                                            let next_m = match cur_m {
+                                                                0..=19 => 20,
+                                                                20..=24 => 25,
+                                                                25..=29 => 30,
+                                                                30..=44 => 45,
+                                                                45..=59 => 60,
+                                                                60..=89 => 90,
+                                                                90..=119 => 120,
+                                                                _ => 15,
+                                                            };
+                                                            it.update_interval_mins(next_m);
+                                                            changed = true;
+                                                        }
                                                     }
+                                                });
+                                                if changed {
+                                                    on_save();
                                                 }
-                                            });
-                                            if changed {
-                                                on_save();
-                                            }
-                                        },
-                                    ))
-                                )
+                                            },
+                                        )),
+                                ),
                         )
                         .child(
                             view()
@@ -1309,10 +1395,11 @@ fn render_item_row(
                         ),
                 ),
         )
-        // 右半部分：当天统计 + 主行动 [✓] + 低频动作菜单 [⋯]
+        // 右半部分：当天统计 + 主行动 [✓] + 低频动作菜单 [⋯]（固定不被压缩）
         .child(
             view()
                 .window_drag(false)
+                .flex_shrink_0()
                 .flex_row()
                 .items_center()
                 .gap(px(6.0))
