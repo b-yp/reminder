@@ -45,6 +45,8 @@ pub const ACCENT_DONE_BG: AdaptiveColor = AdaptiveColor::rgb(0xdcfce7, 0x064e3b)
 pub const ACCENT_DONE_BORDER: AdaptiveColor = AdaptiveColor::rgb(0x86efac, 0x059669);
 /// 「已达成 / 已加入」的文字色
 pub const ACCENT_DONE_FG: AdaptiveColor = AdaptiveColor::rgb(0x166534, 0x6ee7b7);
+/// 逾期行的警示底色：浅色很淡、深色压暗，不压过行内文字
+pub const OVERDUE_WASH: AdaptiveColor = AdaptiveColor::rgb(0xfdf2f2, 0x2a1315);
 /// 「现在就该处理」的实心绿（逾期打卡）
 pub const ACCENT_NOW_BG: AdaptiveColor = AdaptiveColor::rgb(0x16a34a, 0x15803d);
 /// 「现在就该处理」的绿描边

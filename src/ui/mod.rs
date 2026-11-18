@@ -9,12 +9,16 @@ mod badge;
 mod button;
 mod choice;
 mod disclosure;
+mod menu;
 mod preset;
 mod switch;
 
 pub use badge::{BadgeTone, status_badge};
-pub use button::{ActionTone, action_button, icon_button, micro_button, step_button, text_button};
+pub use button::{
+    ActionTone, action_button, icon_button, micro_button, step_button, text_button, undo_button,
+};
 pub use choice::{choice_chip, choice_grid, choice_group, icon_choice, segment_toggle};
 pub use disclosure::disclosure_row;
+pub use menu::row_menu;
 pub use preset::preset_card;
 pub use switch::setting_switch;

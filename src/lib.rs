@@ -20,11 +20,13 @@ use std::time::Duration;
 use nsh_core::prelude::*;
 use nsh_core::element::{desktop, input, AdaptiveColor};
 use nsh_core::desktop::{WindowAttributes, WindowFrame, WindowFrameStyle, WindowLevel};
-use nsh_base::{SliderValue, button, collapsible, slider, theme, time_field, TimeOfDay};
+use nsh_base::{
+    SliderValue, SwipeDirection, TimeOfDay, button, collapsible, slider, theme, time_field, toast,
+};
 use chrono::Timelike;
 use hotkey::HotkeyStatus;
 use model::{ReminderItem, Schedule};
-use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_NOW_FG};
+use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG, OVERDUE_WASH};
 
 const LOGO: ImageAsset = asset!("logo.png");
 
@@ -285,6 +287,17 @@ const ICON_CHOICES_LIFE: &[(&str, &str)] = &[
     ("sun", "晒太阳"),
 ];
 
+/// 删除后留给「撤销」的秒数
+const UNDO_SECONDS: u64 = 5;
+
+/// 刚删除、还留在底部撤销窗口里的提醒（窗口关闭后即为最终删除）。
+#[derive(Clone, PartialEq)]
+struct PendingDelete {
+    item: ReminderItem,
+    index: usize,
+    deadline: u64,
+}
+
 /// 图标主题第二排：专注与日程
 const ICON_CHOICES_FOCUS: &[(&str, &str)] = &[
     ("clock", "专注"),
@@ -460,6 +473,12 @@ pub fn App() -> impl IntoElement {
     let show_settings = signal(false);
     let show_presets = signal(false);
     let show_custom_form = signal(false);
+    // 删除后的撤销窗口：同时只保留一条，新的删除会让上一条直接转正
+    let pending_delete = signal(Option::<PendingDelete>::None);
+    // 鼠标是否悬停在撤销 Toast 上（悬停时暂停倒计时）
+    let is_toast_hovered = signal(false);
+    // 每秒推进的时钟，驱动撤销条上的倒计时
+    let clock = signal(localtime::unix_now());
 
     // 统一配置持久化回调
     let save_app_state = {
@@ -479,6 +498,44 @@ pub fn App() -> impl IntoElement {
                 win_placement,
             );
         }
+    };
+
+    // 删除：立刻从列表移除并落盘，把副本交给底部撤销条
+    let delete_item = move |id: u64| {
+        let mut removed = None;
+        items.update(|list| {
+            if let Some(pos) = list.iter().position(|x| x.id == id) {
+                removed = Some((pos, list.remove(pos)));
+            }
+        });
+        if let Some((index, item)) = removed {
+            is_toast_hovered.set(false);
+            pending_delete.set(Some(PendingDelete {
+                item,
+                index,
+                deadline: localtime::unix_now() + UNDO_SECONDS,
+            }));
+            save_app_state();
+        }
+    };
+
+    // 撤销：按原位置插回并重新落盘
+    let undo_delete = move || {
+        if let Some(pending) = pending_delete.get() {
+            items.update(|list| {
+                let at = pending.index.min(list.len());
+                list.insert(at, pending.item.clone());
+            });
+            is_toast_hovered.set(false);
+            pending_delete.set(None);
+            save_app_state();
+        }
+    };
+
+    // 手动关闭 / 滑走撤销 Toast
+    let dismiss_toast = move || {
+        is_toast_hovered.set(false);
+        pending_delete.set(None);
     };
 
     // 系统托盘：左键唤回窗口，右键菜单是唯一真正的退出入口。
@@ -588,7 +645,20 @@ pub fn App() -> impl IntoElement {
             }
         }
 
-        // 2. 倒计时与提醒驱动（定点提醒按本地墙钟判断，间隔提醒逐秒递减）
+        // 2. 撤销窗口：时钟推进；到期只收起提示（删除早已落盘）
+        clock.set(localtime::unix_now());
+        if let Some(mut pending) = pending_delete.get() {
+            if is_toast_hovered.get() {
+                // 鼠标悬停在 Toast 上时顺延 deadline，暂停倒计时
+                pending.deadline = pending.deadline.saturating_add(1);
+                pending_delete.set(Some(pending));
+            } else if localtime::unix_now() >= pending.deadline {
+                is_toast_hovered.set(false);
+                pending_delete.set(None);
+            }
+        }
+
+        // 3. 倒计时与提醒驱动（定点提醒按本地墙钟判断，间隔提醒逐秒递减）
         let mut state_changed = pos_changed;
         if !is_all_paused.get() {
             let now = localtime::now();
@@ -669,6 +739,12 @@ pub fn App() -> impl IntoElement {
                 autostart_error,
                 enter_mini,
                 save_app_state,
+                pending_delete,
+                clock,
+                delete_item,
+                undo_delete,
+                is_toast_hovered,
+                dismiss_toast,
             )
         }),
     )
@@ -690,8 +766,15 @@ fn render_full_card(
     autostart_error: Signal<Option<String>>,
     on_enter_mini: impl Fn() + Copy + 'static,
     on_save: impl Fn() + Copy + 'static,
+    pending_delete: Signal<Option<PendingDelete>>,
+    clock: Signal<u64>,
+    on_delete: impl Fn(u64) + Copy + 'static,
+    on_undo: impl Fn() + Copy + 'static,
+    is_toast_hovered: Signal<bool>,
+    on_dismiss_toast: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
     view()
+        .relative()
         .w_full()
         .h_full()
         .p(px(14.0))
@@ -728,12 +811,34 @@ fn render_full_card(
                             on_save,
                         ))
                         // 核心提醒列表
-                        .child(render_items(items, on_save)),
+                        .child(render_items(items, on_save, on_delete)),
                 ),
         )
         // 3. 底部状态行（「进行中 X 项 · 今日打卡 Y 次」，若处于半透明状态则额外指示不透明度；
         //    常态下右侧显示全局热键，提示一键隐藏 / 呼出）
-        .child(render_footer(items, opacity, hotkey, hotkey_enabled))
+        .child(render_footer(
+            items,
+            opacity,
+            hotkey,
+            hotkey_enabled,
+        ))
+        // 4. 底部浮层撤销 Toast（当存在 pending_delete 时在底栏上方优雅浮现）
+        .child(
+            when(
+                move || pending_delete.get().is_some(),
+                move || {
+                    pending_delete.get().map(|pending| {
+                        render_undo_toast(
+                            pending,
+                            clock,
+                            is_toast_hovered,
+                            on_undo,
+                            on_dismiss_toast,
+                        )
+                    })
+                },
+            ),
+        )
 }
 
 /// 迷你胶囊挂件形态（Mini Pill / Dynamic Island）：仅 220x44 像素，支持全屏自由拖动、显示最优先提醒、一键完成打卡与一键展开
@@ -787,7 +892,7 @@ fn render_mini_capsule(
                     svg(move || {
                         if let Some((_, it, _)) = active_item_info.get() {
                             let is_exp = it.is_expired();
-                            let color = if is_exp { "#ef4444" } else { icons::get_item_color(&it.icon) };
+                            let color = icons::get_item_color(&it.icon);
                             let ratio = if is_exp { 1.0 } else { it.progress_ratio() };
                             let markup = icons::mini_ring_progress_svg(&it.icon, ratio, color);
                             nsh_core::element::ImageSrc::svg_markup(&markup)
@@ -1061,6 +1166,7 @@ fn render_header(
 fn render_items(
     items: Signal<Vec<ReminderItem>>,
     on_save: impl Fn() + Copy + 'static,
+    on_delete: impl Fn(u64) + Copy + 'static,
 ) -> impl IntoElement {
     view()
         .window_drag(true)
@@ -1070,7 +1176,7 @@ fn render_items(
         .child(each(
             items,
             |item| item.id,
-            move |item_sig, _| render_item_row(item_sig, items, on_save),
+            move |item_sig, _| render_item_row(item_sig, items, on_save, on_delete),
         ))
 }
 
@@ -1079,6 +1185,7 @@ fn render_item_row(
     item_sig: ReadSignal<ReminderItem>,
     items: Signal<Vec<ReminderItem>>,
     on_save: impl Fn() + Copy + 'static,
+    on_delete: impl Fn(u64) + Copy + 'static,
 ) -> impl IntoElement {
     let item_id = item_sig.get_untracked().id;
     let icon_key = item_sig.get_untracked().icon.clone();
@@ -1091,10 +1198,10 @@ fn render_item_row(
         .py(px(4.0))
         .px(px(4.0))
         .rounded(px(6.0))
-        // 到期时以官方 destructive 柔和警示底色高亮
+        // 逾期时用固定的警示底色令牌（浅色淡红、深色暗红），不靠 opacity 叠加
         .bg(move || {
             if item_sig.get().is_expired() {
-                theme().destructive.opacity(0.12)
+                OVERDUE_WASH
             } else {
                 AdaptiveColor::TRANSPARENT
             }
@@ -1117,7 +1224,7 @@ fn render_item_row(
                             svg(move || {
                                 let it = item_sig.get();
                                 let is_exp = it.is_expired();
-                                let color = if is_exp { "#ef4444" } else { icons::get_item_color(&icon_key) };
+                                let color = icons::get_item_color(&icon_key);
                                 let ratio = if is_exp { 1.0 } else { it.progress_ratio() };
                                 let markup = icons::ring_progress_svg(&icon_key, ratio, color);
                                 nsh_core::element::ImageSrc::svg_markup(&markup)
@@ -1202,7 +1309,7 @@ fn render_item_row(
                         ),
                 ),
         )
-        // 右半部分：当天统计「今日 N 次」 + 胶囊按钮组 [✓] [+5] [🗑]
+        // 右半部分：当天统计 + 主行动 [✓] + 低频动作菜单 [⋯]
         .child(
             view()
                 .window_drag(false)
@@ -1215,83 +1322,130 @@ fn render_item_row(
                         .text_size(px(12.0))
                         .text_color(move || theme().muted_foreground),
                 )
-                // 操作按钮组
+                // 打卡：行内唯一的强调动作（金黄浅底，逾期也不换颜色，
+                // 逾期由行底 wash 与红色倒计时承担）
+                .child(ui::action_button(
+                    "打卡完成",
+                    28.0,
+                    || ui::ActionTone::Accent,
+                    || false,
+                    move || {
+                        let now = localtime::now();
+                        items.update(|list| {
+                            if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
+                                it.complete(&now);
+                            }
+                        });
+                        on_save();
+                    },
+                    icons::icon_svg(icons::ICON_CHECK, 12.0, ACCENT_GOLD),
+                ))
+                // 延后与删除收进「⋯」菜单：删除触发底部撤销 Toast
+                .child(ui::row_menu(
+                    move || item_sig.get().is_done_today(&localtime::now()),
+                    move || {
+                        let now = localtime::now();
+                        let mut changed = false;
+                        items.update(|list| {
+                            if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
+                                changed = it.snooze(300, &now);
+                            }
+                        });
+                        if changed {
+                            on_save();
+                        }
+                    },
+                    move || on_delete(item_id),
+                )),
+        )
+}
+
+/// 底部浮层撤销 Toast：基于 NSH `toast()` 语义根（role=alert、支持滑动划走），
+/// 悬浮在底栏上方，带有柔和阴影、精致边框、垃圾桶图标、任务名、撤销按钮及动态倒计时。
+fn render_undo_toast(
+    pending: PendingDelete,
+    clock: Signal<u64>,
+    is_hovered: Signal<bool>,
+    on_undo: impl Fn() + Copy + 'static,
+    on_dismiss: impl Fn() + Copy + 'static,
+) -> impl IntoElement {
+    let name = pending.item.name.clone();
+    let remaining = computed(move || {
+        pending
+            .deadline
+            .saturating_sub(clock.get())
+            .min(UNDO_SECONDS)
+    });
+
+    view()
+        .absolute()
+        .left(px(14.0))
+        .right(px(14.0))
+        .bottom(px(36.0))
+        .pointer_events(PointerEvents::BoxNone)
+        .window_drag(false)
+        .flex_row()
+        .justify_center()
+        .child(
+            toast()
+                .accessibility_label("已删除，可撤销")
+                .swipe_direction(Some(SwipeDirection::Right))
+                .on_dismiss_request(move || on_dismiss())
+                .pointer_events(PointerEvents::Auto)
+                .w_full()
+                .px(px(10.0))
+                .py(px(6.5))
+                .rounded(px(8.0))
+                .bg(move || theme().popover)
+                .border_1()
+                .border_color(move || theme().border)
+                .shadow_lg()
+                .transition_all()
+                .duration(200.0)
+                .starting_class("opacity-0 translate-y-3")
+                .ending_class("opacity-0 scale-95")
                 .child(
                     view()
+                        .w_full()
                         .flex_row()
                         .items_center()
-                        .gap(px(4.0))
-                        // [✓] 打卡按钮（底座 nsh/base button：可 Tab、可空格/回车，逾期时转为实心绿）
-                        .child(ui::action_button(
-                            "打卡完成",
-                            28.0,
-                            move || {
-                                if item_sig.get().is_expired() {
-                                    ui::ActionTone::Attention
-                                } else {
-                                    ui::ActionTone::Quiet
-                                }
-                            },
-                            || false,
-                            move || {
-                                let now = localtime::now();
-                                items.update(|list| {
-                                    if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
-                                        it.complete(&now);
-                                    }
-                                });
-                                on_save();
-                            },
-                            icons::dynamic_icon_svg(
-                                move || icons::ICON_CHECK,
-                                12.0,
-                                move || {
-                                    if item_sig.get().is_expired() {
-                                        ACCENT_NOW_FG
-                                    } else {
-                                        theme().foreground
-                                    }
-                                },
-                            ),
-                        ))
-                        // [+5] 延期 5 分钟按钮（定点提醒今天已打卡时置灰且不生效）
-                        .child(ui::action_button(
-                            "延后 5 分钟",
-                            28.0,
-                            || ui::ActionTone::Quiet,
-                            move || item_sig.get().is_done_today(&localtime::now()),
-                            move || {
-                                let now = localtime::now();
-                                let mut changed = false;
-                                items.update(|list| {
-                                    if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
-                                        changed = it.snooze(300, &now);
-                                    }
-                                });
-                                if changed {
-                                    on_save();
-                                }
-                            },
-                            text("+5")
-                                .text_size(px(10.5))
-                                .text_color(move || theme().secondary_foreground),
-                        ))
-                        // [🗑] 移除该项提醒
-                        .child(ui::action_button(
-                            "删除提醒",
-                            22.0,
-                            || ui::ActionTone::Quiet,
-                            || false,
-                            move || {
-                                items.update(|list| list.retain(|x| x.id != item_id));
-                                on_save();
-                            },
-                            icons::icon_svg(
-                                icons::ICON_TRASH,
-                                11.0,
-                                move || theme().muted_foreground,
-                            ),
-                        )),
+                        .justify_between()
+                        .gap(px(8.0))
+                        .on_mouse_enter(move |_: &MouseEvent| is_hovered.set(true))
+                        .on_mouse_leave(move |_: &MouseEvent| is_hovered.set(false))
+                        // 左侧：垃圾桶图标 + 提示文字（超出截断省略）
+                        .child(
+                            view()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(6.0))
+                                .flex_1()
+                                .overflow_hidden()
+                                .child(icons::icon_svg(
+                                    icons::ICON_TRASH,
+                                    12.0,
+                                    move || theme().muted_foreground,
+                                ))
+                                .child(
+                                    text(format!("已删除「{name}」"))
+                                        .text_size(px(11.0))
+                                        .text_color(move || theme().popover_foreground)
+                                        .truncate(),
+                                ),
+                        )
+                        // 右侧：撤销按钮 + 倒计时
+                        .child(
+                            view()
+                                .flex_row()
+                                .items_center()
+                                .gap(px(6.0))
+                                .child(ui::undo_button("撤销", move || on_undo()))
+                                .child(
+                                    text(move || format!("{}s", remaining.get()))
+                                        .text_size(px(10.0))
+                                        .text_color(move || theme().muted_foreground),
+                                ),
+                        ),
                 ),
         )
 }
@@ -1318,7 +1472,7 @@ fn render_footer(
     });
 
     view()
-        .window_drag(true)
+        .window_drag(false)
         .flex_row()
         .items_center()
         .justify_between()
@@ -1326,9 +1480,11 @@ fn render_footer(
         .border_t_1()
         .border_color(move || theme().border)
         .child(
-            text(move || summary_text.get())
-                .text_size(px(11.0))
-                .text_color(move || theme().muted_foreground),
+            view().child(
+                text(move || summary_text.get())
+                    .text_size(px(11.0))
+                    .text_color(move || theme().muted_foreground),
+            ),
         )
         // 右侧：全局热键提示 + 半透明时的不透明度微标（都放得下，热键提示不被挤掉）
         .child(
