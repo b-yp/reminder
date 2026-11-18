@@ -1332,9 +1332,12 @@ fn render_item_row(
                                 .min_w(px(0.0))
                                 .flex_row()
                                 .items_center()
+                                .overflow_hidden()
                                 .gap(px(5.0))
                                 .child(
                                     text(move || item_sig.get().name.clone())
+                                        .flex_1()
+                                        .min_w(px(0.0))
                                         .text_size(px(13.0))
                                         .text_color(move || theme().foreground)
                                         .truncate(),
@@ -2780,5 +2783,91 @@ mod tests {
 
         let _ = std::fs::remove_file(&test_file);
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[component]
+    fn ShortRowHost() -> impl IntoElement {
+        let item = ReminderItem::new("喝水", "droplet", 1800);
+        let item_sig = signal(item);
+        let items = signal(vec![item_sig.get()]);
+        view()
+            .w(px(320.0))
+            .child(render_item_row(
+                item_sig.read_only(),
+                items,
+                || {},
+                |_| {},
+            ))
+    }
+
+    #[component]
+    fn LongRowHost() -> impl IntoElement {
+        // 40 个中文字符
+        let name = "这是测试超长任务名称用来验证行布局不会被挤坏的四十个中文字符串测试用例一二三四五";
+        assert_eq!(name.chars().count(), 40);
+        let item = ReminderItem::new(name, "droplet", 1800);
+        let item_sig = signal(item);
+        let items = signal(vec![item_sig.get()]);
+        view()
+            .w(px(320.0))
+            .child(render_item_row(
+                item_sig.read_only(),
+                items,
+                || {},
+                |_| {},
+            ))
+    }
+
+    #[test]
+    fn test_long_name_row_regression_320w() {
+        use nsh_testing::Headless;
+        use nsh_engine::{EngineConfig, Root, Size, Points};
+
+        let config_short = EngineConfig {
+            viewport: Size::new(Points(320.0), Points(200.0)),
+            ..EngineConfig::new(Root::of::<ShortRowHost>())
+        };
+        let mut app_short = Headless::start(config_short).unwrap();
+        app_short.wait_for("喝水").unwrap();
+
+        let config_long = EngineConfig {
+            viewport: Size::new(Points(320.0), Points(200.0)),
+            ..EngineConfig::new(Root::of::<LongRowHost>())
+        };
+        let mut app_long = Headless::start(config_long).unwrap();
+        app_long.wait_for("30m").unwrap();
+
+        // 1. 验证徽标与统计文本在 40 个中文字符超长名称下依然完整显示
+        assert!(app_long.screen().shows("30m"), "周期徽标在长文本下必须可见");
+        assert!(app_long.screen().shows("今日 0 次"), "统计文案在长文本下必须可见");
+
+        let nodes_short = app_short.screen().layout_nodes();
+        let nodes_long = app_long.screen().layout_nodes();
+
+        assert_eq!(nodes_short.len(), nodes_long.len(), "组件节点树结构应保持稳定一致");
+
+        // 2. 验证名称和徽标所在的 row (node 6) 明确开启了 overflow_hidden (clips == true)
+        let row_long = &nodes_long[6];
+        assert!(row_long.clips, "名称和徽标所在的 row 必须开启 overflow_hidden (clips)");
+
+        // 3. 验证长文本容器没有被撑大超出其可用分配空间
+        let name_text_short = &nodes_short[7];
+        let name_text_long = &nodes_long[7];
+        assert_eq!(name_text_long.bounds.size.width, name_text_short.bounds.size.width, "长文本由于 flex_1 和 truncate 约束在可用宽度内");
+
+        // 4. 验证徽标没有被挤走（node 8）
+        let badge_short = &nodes_short[8];
+        let badge_long = &nodes_long[8];
+        assert_eq!(badge_long.bounds, badge_short.bounds, "周期徽标 bounds 在长文本下不发生位移和变形");
+
+        // 5. 验证右侧操作区整体 (node 13) 及「今日 0 次」(node 14)、打卡按钮 (node 15)、更多菜单 (node 19) 不位移
+        for idx in [13, 14, 15, 19] {
+            assert_eq!(
+                nodes_long[idx].bounds,
+                nodes_short[idx].bounds,
+                "节点 {} (右侧操作区组件) 在 40 个中文字符下不发生位移",
+                idx
+            );
+        }
     }
 }
