@@ -5,3 +5,4 @@ target/
 
 # 界面验证截图
 out/
+tmp/
