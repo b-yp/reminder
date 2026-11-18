@@ -20,10 +20,11 @@ use std::time::Duration;
 use nsh_core::prelude::*;
 use nsh_core::element::{desktop, input, AdaptiveColor};
 use nsh_core::desktop::{WindowAttributes, WindowFrame, WindowFrameStyle, WindowLevel};
-use nsh_base::{SliderValue, button, slider, collapsible, theme};
+use nsh_base::{SliderValue, button, collapsible, slider, theme, time_field, TimeOfDay};
+use chrono::Timelike;
 use hotkey::HotkeyStatus;
 use model::{ReminderItem, Schedule};
-use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG};
+use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_NOW_FG};
 
 const LOGO: ImageAsset = asset!("logo.png");
 
@@ -253,6 +254,48 @@ pub const WINDOW_HEIGHT: f32 = 350.0;
 /// 迷你胶囊形态尺寸（极简悬浮小药丸，仅占用极少屏幕空间）
 pub const MINI_WIDTH: f32 = 196.0;
 pub const MINI_HEIGHT: f32 = 44.0;
+
+/// 循环周期的快捷填入（标签, 分钟）
+const MINUTE_CHIPS: &[(&str, u32)] = &[
+    ("15m", 15),
+    ("25m", 25),
+    ("30m", 30),
+    ("45m", 45),
+    ("60m", 60),
+    ("90m", 90),
+];
+
+/// 常用定点时刻（标签, 时, 分）
+const TIME_CHIPS: &[(&str, u32, u32)] = &[
+    ("08:00", 8, 0),
+    ("12:00", 12, 0),
+    ("18:30", 18, 30),
+    ("23:00", 23, 0),
+];
+
+/// 图标主题第一排：生活与健康（图标 key, 读屏用的名字）
+const ICON_CHOICES_LIFE: &[(&str, &str)] = &[
+    ("droplet", "喝水"),
+    ("coffee", "咖啡"),
+    ("walk", "走动"),
+    ("activity", "活动"),
+    ("eye", "护眼"),
+    ("pill", "服药"),
+    ("heart", "静心"),
+    ("sun", "晒太阳"),
+];
+
+/// 图标主题第二排：专注与日程
+const ICON_CHOICES_FOCUS: &[(&str, &str)] = &[
+    ("clock", "专注"),
+    ("book", "阅读"),
+    ("laptop", "办公"),
+    ("target", "目标"),
+    ("moon", "小憩"),
+    ("apple", "轻食"),
+    ("toilet", "如厕"),
+    ("bell", "闹钟"),
+];
 
 /// 挂件窗口的 NSH 属性：置顶悬浮 + 无系统边框，并设极小 min_size 防止 Win32 限制最小追踪尺寸
 /// （`WindowAttributes` 为 `non_exhaustive`，故用 Default 赋值而非结构体字面量）
@@ -846,78 +889,39 @@ fn render_mini_capsule(
                 .items_center()
                 .gap(px(4.0))
                 // 快捷打卡对勾按钮（特别是在到期时一键打卡）
-                .child(
-                    view()
-                        .w(px(22.0))
-                        .h(px(22.0))
-                        .rounded(px(5.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(move || {
-                            let is_exp = active_item_info.with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired()));
-                            if is_exp {
-                                ACCENT_GOLD_BG
-                            } else {
-                                theme().secondary
-                            }
-                        })
-                        .border_1()
-                        .border_color(move || {
-                            let is_exp = active_item_info.with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired()));
-                            if is_exp {
-                                ACCENT_GOLD
-                            } else {
-                                theme().border
-                            }
-                        })
-                        .active(|s| s.opacity(0.5))
-                        .on_press(move || {
-                            if let Some((idx, _, _)) = active_item_info.get() {
-                                let now = localtime::now();
-                                items.update(|list| {
-                                    if idx < list.len() {
-                                        list[idx].complete(&now);
-                                    }
-                                });
-                                on_save();
-                            }
-                        })
-                        .child(
-                            icons::icon_svg(
-                                icons::ICON_CHECK,
-                                12.0,
-                                move || {
-                                    let is_exp = active_item_info.with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired()));
-                                    if is_exp {
-                                        ACCENT_GOLD
-                                    } else {
-                                        theme().muted_foreground
-                                    }
-                                },
-                            ),
-                        ),
-                )
+                .child(ui::icon_button(
+                    "打卡完成",
+                    move || {
+                        active_item_info
+                            .with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired()))
+                    },
+                    move || {
+                        if let Some((idx, _, _)) = active_item_info.get() {
+                            let now = localtime::now();
+                            items.update(|list| {
+                                if idx < list.len() {
+                                    list[idx].complete(&now);
+                                }
+                            });
+                            on_save();
+                        }
+                    },
+                    icons::icon_svg(icons::ICON_CHECK, 12.0, move || theme().muted_foreground),
+                ))
                 // 展开为大卡片按钮
                 .child(
                     view()
                         .test_id("expand-mini-btn")
-                        .w(px(22.0))
-                        .h(px(22.0))
-                        .rounded(px(5.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(move || theme().secondary)
-                        .border_1()
-                        .border_color(move || theme().border)
-                        .active(|s| s.opacity(0.5))
-                        .on_press(on_expand)
-                        .child(
+                        .child(ui::icon_button(
+                            "展开为卡片",
+                            || false,
+                            on_expand,
                             icons::icon_svg(
                                 icons::ICON_EXPAND,
                                 11.0,
                                 move || theme().muted_foreground,
                             ),
-                        ),
+                        )),
                 ),
         )
 }
@@ -977,54 +981,27 @@ fn render_header(
                 .items_center()
                 .gap(px(6.0))
                 // 暂停 / 播放全部
-                .child(
-                    view()
-                        .w(px(22.0))
-                        .h(px(22.0))
-                        .rounded(px(5.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(move || theme().secondary)
-                        .active(|s| s.opacity(0.5))
-                        .on_press(move || {
-                            is_all_paused.update(|v| *v = !*v);
-                            on_save();
-                        })
-                        .child(
-                            when(
-                                move || is_all_paused.get(),
-                                move || icons::icon_svg(icons::ICON_PLAY, 11.0, ACCENT_GOLD),
-                            )
-                            .otherwise(move || icons::icon_svg(icons::ICON_PAUSE, 11.0, move || theme().muted_foreground)),
-                        ),
-                )
+                .child(ui::icon_button(
+                    "暂停或恢复全部提醒",
+                    move || is_all_paused.get(),
+                    move || {
+                        is_all_paused.update(|v| *v = !*v);
+                        on_save();
+                    },
+                    when(
+                        move || is_all_paused.get(),
+                        move || icons::icon_svg(icons::ICON_PLAY, 11.0, ACCENT_GOLD),
+                    )
+                    .otherwise(move || icons::icon_svg(icons::ICON_PAUSE, 11.0, move || theme().muted_foreground)),
+                ))
                 // 设置 / 新建
                 .child(
                     view()
                         .test_id("settings-toggle")
-                        .w(px(22.0))
-                        .h(px(22.0))
-                        .rounded(px(5.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(move || {
-                            if show_settings.get() {
-                                ACCENT_GOLD_BG
-                            } else {
-                                theme().secondary
-                            }
-                        })
-                        .border_1()
-                        .border_color(move || {
-                            if show_settings.get() {
-                                ACCENT_GOLD
-                            } else {
-                                theme().border
-                            }
-                        })
-                        .active(|s| s.opacity(0.5))
-                        .on_press(move || show_settings.update(|v| *v = !*v))
-                        .child(
+                        .child(ui::icon_button(
+                            "设置与新建提醒",
+                            move || show_settings.get(),
+                            move || show_settings.update(|v| *v = !*v),
                             icons::dynamic_icon_svg(
                                 move || icons::ICON_SETTINGS,
                                 12.0,
@@ -1036,42 +1013,32 @@ fn render_header(
                                     }
                                 },
                             ),
-                        ),
+                        )),
                 )
                 // 收起为迷你灵动岛胶囊
-                .child(
-                    view()
-                        .w(px(22.0))
-                        .h(px(22.0))
-                        .rounded(px(5.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(move || theme().secondary)
-                        .border_1()
-                        .border_color(move || theme().border)
-                        .active(|s| s.opacity(0.5))
-                        .on_press(on_enter_mini)
-                        .child(
-                            icons::icon_svg(
-                                icons::ICON_MINIMIZE,
-                                11.0,
-                                move || theme().muted_foreground,
-                            ),
-                        ),
-                )
+                .child(ui::icon_button(
+                    "收起为迷你胶囊",
+                    || false,
+                    on_enter_mini,
+                    icons::icon_svg(
+                        icons::ICON_MINIMIZE,
+                        11.0,
+                        move || theme().muted_foreground,
+                    ),
+                ))
                 // 收进托盘（不是退出）：提醒计时与托盘图标继续运行，退出只放在托盘菜单里
                 .child(
                     view()
                         .test_id("hide-to-tray-btn")
-                        .w(px(22.0))
-                        .h(px(22.0))
-                        .rounded(px(5.0))
-                        .items_center()
-                        .justify_center()
-                        .bg(move || theme().secondary)
-                        .active(|s| s.opacity(0.5))
-                        .role(AccessibilityRole::Button)
-                        .label("收进托盘，继续提醒")
+                        .child(ui::icon_button(
+                            "收进托盘，继续提醒",
+                            || false,
+                            move || {
+                                on_save();
+                                hide_to_tray();
+                            },
+                            icons::icon_svg(icons::ICON_X, 11.0, move || theme().muted_foreground),
+                        ))
                         .tooltip(
                             view()
                                 .px(px(8.0))
@@ -1085,13 +1052,6 @@ fn render_header(
                                         .text_size(px(11.0))
                                         .text_color(move || theme().popover_foreground),
                                 ),
-                        )
-                        .on_press(move || {
-                            on_save();
-                            hide_to_tray();
-                        })
-                        .child(
-                            icons::icon_svg(icons::ICON_X, 11.0, move || theme().muted_foreground),
                         ),
                 ),
         )
@@ -1183,19 +1143,15 @@ fn render_item_row(
                                         .text_color(move || theme().foreground),
                                 )
                                 .child(
-                                    view()
-                                        .window_drag(false)
-                                        .px(px(4.0))
-                                        .py(px(0.5))
-                                        .rounded(px(3.0))
-                                        .bg(move || theme().muted)
-                                        .border_1()
-                                        .border_color(move || theme().border)
-                                        .active(|s| s.opacity(0.5))
-                                        .on_press(move || {
+                                    view().window_drag(false).child(ui::micro_button(
+                                        move || item_sig.get().format_badge(),
+                                        "切换提醒周期",
+                                        move || {
                                             let mut changed = false;
                                             items.update(|list| {
-                                                if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
+                                                if let Some(it) =
+                                                    list.iter_mut().find(|x| x.id == item_id)
+                                                {
                                                     // 定点提醒按墙上时间走，不参与「点击轮换间隔」
                                                     if !it.is_daily() {
                                                         let cur_m = it.interval_secs / 60;
@@ -1217,13 +1173,9 @@ fn render_item_row(
                                             if changed {
                                                 on_save();
                                             }
-                                        })
-                                        .child(
-                                            text(move || item_sig.get().format_badge())
-                                                .text_size(px(10.0))
-                                                .text_color(move || theme().muted_foreground),
-                                        ),
-                                ),
+                                        },
+                                    ))
+                                )
                         )
                         .child(
                             view()
@@ -1269,113 +1221,77 @@ fn render_item_row(
                         .flex_row()
                         .items_center()
                         .gap(px(4.0))
-                        // [✓] 打卡按钮（到期时强化为翡翠绿微亮框）
-                        .child(
-                            view()
-                                .w(px(28.0))
-                                .h(px(24.0))
-                                .rounded(px(5.0))
-                                .bg(move || {
-                                    if item_sig.get().is_expired() {
-                                        AdaptiveColor::rgb(0x16a34a, 0x15803d)
-                                    } else {
-                                        theme().secondary
+                        // [✓] 打卡按钮（底座 nsh/base button：可 Tab、可空格/回车，逾期时转为实心绿）
+                        .child(ui::action_button(
+                            "打卡完成",
+                            28.0,
+                            move || {
+                                if item_sig.get().is_expired() {
+                                    ui::ActionTone::Attention
+                                } else {
+                                    ui::ActionTone::Quiet
+                                }
+                            },
+                            || false,
+                            move || {
+                                let now = localtime::now();
+                                items.update(|list| {
+                                    if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
+                                        it.complete(&now);
                                     }
-                                })
-                                .border_1()
-                                .border_color(move || {
+                                });
+                                on_save();
+                            },
+                            icons::dynamic_icon_svg(
+                                move || icons::ICON_CHECK,
+                                12.0,
+                                move || {
                                     if item_sig.get().is_expired() {
-                                        AdaptiveColor::rgb(0x22c55e, 0x4ade80)
+                                        ACCENT_NOW_FG
                                     } else {
-                                        theme().border
+                                        theme().foreground
                                     }
-                                })
-                                .items_center()
-                                .justify_center()
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
-                                    let now = localtime::now();
-                                    items.update(|list| {
-                                        if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
-                                            it.complete(&now);
-                                        }
-                                    });
-                                    on_save();
-                                })
-                                .child(
-                                    icons::dynamic_icon_svg(
-                                        move || icons::ICON_CHECK,
-                                        12.0,
-                                        move || {
-                                            if item_sig.get().is_expired() {
-                                                AdaptiveColor::rgb(0xffffff, 0xffffff)
-                                            } else {
-                                                theme().foreground
-                                            }
-                                        },
-                                    ),
-                                ),
-                        )
+                                },
+                            ),
+                        ))
                         // [+5] 延期 5 分钟按钮（定点提醒今天已打卡时置灰且不生效）
-                        .child(
-                            view()
-                                .w(px(28.0))
-                                .h(px(24.0))
-                                .rounded(px(5.0))
-                                .bg(move || theme().secondary)
-                                .border_1()
-                                .border_color(move || theme().border)
-                                .items_center()
-                                .justify_center()
-                                .opacity(move || {
-                                    let now = localtime::now();
-                                    if item_sig.get().is_done_today(&now) {
-                                        0.35_f32
-                                    } else {
-                                        1.0_f32
+                        .child(ui::action_button(
+                            "延后 5 分钟",
+                            28.0,
+                            || ui::ActionTone::Quiet,
+                            move || item_sig.get().is_done_today(&localtime::now()),
+                            move || {
+                                let now = localtime::now();
+                                let mut changed = false;
+                                items.update(|list| {
+                                    if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
+                                        changed = it.snooze(300, &now);
                                     }
-                                })
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
-                                    let now = localtime::now();
-                                    let mut changed = false;
-                                    items.update(|list| {
-                                        if let Some(it) = list.iter_mut().find(|x| x.id == item_id) {
-                                            changed = it.snooze(300, &now);
-                                        }
-                                    });
-                                    if changed {
-                                        on_save();
-                                    }
-                                })
-                                .child(
-                                    text("+5")
-                                        .text_size(px(10.5))
-                                        .text_color(move || theme().secondary_foreground),
-                                ),
-                        )
-                        // [🗑] 移除该项提醒
-                        .child(
-                            view()
-                                .w(px(22.0))
-                                .h(px(24.0))
-                                .rounded(px(5.0))
-                                .items_center()
-                                .justify_center()
-                                .bg(move || theme().secondary)
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
-                                    items.update(|list| list.retain(|x| x.id != item_id));
+                                });
+                                if changed {
                                     on_save();
-                                })
-                                .child(
-                                    icons::icon_svg(
-                                        icons::ICON_TRASH,
-                                        11.0,
-                                        move || theme().muted_foreground,
-                                    ),
-                                ),
-                        ),
+                                }
+                            },
+                            text("+5")
+                                .text_size(px(10.5))
+                                .text_color(move || theme().secondary_foreground),
+                        ))
+                        // [🗑] 移除该项提醒
+                        .child(ui::action_button(
+                            "删除提醒",
+                            22.0,
+                            || ui::ActionTone::Quiet,
+                            || false,
+                            move || {
+                                items.update(|list| list.retain(|x| x.id != item_id));
+                                on_save();
+                            },
+                            icons::icon_svg(
+                                icons::ICON_TRASH,
+                                11.0,
+                                move || theme().muted_foreground,
+                            ),
+                        )),
                 ),
         )
 }
@@ -1471,35 +1387,19 @@ fn render_preset_card(
 
     let is_running = computed(move || items.with(|list| list.iter().any(|x| x.name == name)));
 
-    view()
-        .flex_1()
-        .px(px(7.0))
-        .py(px(5.0))
-        .rounded(px(5.0))
-        .bg(move || {
-            if is_running.get() {
-                AdaptiveColor::rgb(0xdcfce7, 0x064e3b)
-            } else {
-                theme().secondary
-            }
-        })
-        .border_1()
-        .border_color(move || {
-            if is_running.get() {
-                AdaptiveColor::rgb(0x86efac, 0x059669)
-            } else {
-                theme().border
-            }
-        })
-        .active(|s| s.opacity(0.6))
-        .on_press(move || {
+    // 卡片本身是 ui::preset_card（底座 nsh/base button）：已在列表里时语义上禁用，
+    // 不再重复添加，读屏会读出不可用。
+    ui::preset_card(
+        name,
+        badge,
+        icon,
+        move || is_running.get(),
+        move || {
             if !is_running.get() {
                 let now = localtime::now();
                 items.update(|list| {
                     list.push(match preset.kind {
-                        PresetKind::Interval(mins) => {
-                            ReminderItem::new(name, icon, mins * 60)
-                        }
+                        PresetKind::Interval(mins) => ReminderItem::new(name, icon, mins * 60),
                         PresetKind::Daily(hour, minute) => {
                             ReminderItem::new_daily(name, icon, hour, minute, &now)
                         }
@@ -1507,60 +1407,8 @@ fn render_preset_card(
                 });
                 on_save();
             }
-        })
-        .flex_row()
-        .items_center()
-        .justify_between()
-        // 左侧：对应矢量图标 + 预设名称
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .gap(px(5.0))
-                .child(
-                    icons::icon_svg(
-                        icons::get_icon_markup(icon),
-                        12.0,
-                        icons::get_item_adaptive(icon),
-                    ),
-                )
-                .child(
-                    text(name)
-                        .text_size(px(10.5))
-                        .text_color(move || {
-                            if is_running.get() {
-                                AdaptiveColor::rgb(0x166534, 0x6ee7b7)
-                            } else {
-                                theme().foreground
-                            }
-                        }),
-                ),
-        )
-        // 右侧：时长 / 定时徽章
-        .child(
-            view()
-                .px(px(4.0))
-                .py(px(1.0))
-                .rounded(px(3.0))
-                .bg(move || {
-                    if is_running.get() {
-                        AdaptiveColor::rgb(0xbbf7d0, 0x065f46)
-                    } else {
-                        theme().muted
-                    }
-                })
-                .child(
-                    text(badge)
-                        .text_size(px(9.5))
-                        .text_color(move || {
-                            if is_running.get() {
-                                AdaptiveColor::rgb(0x14532d, 0xa7f3d0)
-                            } else {
-                                theme().muted_foreground
-                            }
-                        }),
-                ),
-        )
+        },
+    )
 }
 
 /// 预设卡片的两列网格
@@ -1608,43 +1456,20 @@ fn schedule_mode_button(
     label: &'static str,
     test_id: &'static str,
 ) -> impl IntoElement {
-    let is_selected = computed(move || mode.get() == daily);
-    view()
-        .test_id(test_id)
-        .px(px(7.0))
-        .py(px(2.0))
-        .rounded(px(4.0))
-        .bg(move || {
-            if is_selected.get() {
-                ACCENT_GOLD_BG
-            } else {
-                theme().secondary
+    // 二选一的选择项，底座是 nsh/base 的 toggle：方向键在组内移动、Space 切换
+    view().test_id(test_id).child(ui::choice_chip(
+        label,
+        move || mode.get() == daily,
+        move |next: bool| {
+            if next {
+                mode.set(daily);
             }
-        })
-        .border_1()
-        .border_color(move || {
-            if is_selected.get() {
-                ACCENT_GOLD
-            } else {
-                theme().border
-            }
-        })
-        .active(|s| s.opacity(0.6))
-        .on_press(move || mode.set(daily))
-        .child(
-            text(label)
-                .text_size(px(10.0))
-                .text_color(move || {
-                    if is_selected.get() {
-                        ACCENT_GOLD
-                    } else {
-                        theme().muted_foreground
-                    }
-                }),
-        )
+        },
+    ))
 }
 
-/// 循环周期配置：分钟输入 + 1 分钟微调 + 快捷填入
+/// 循环周期配置：一个 NumberInput（底座 nsh/base 的 number_input，自带
+/// 上下键步进、按住连发、min/max 钳制、spinbutton 角色）+ 快捷填入胶囊。
 fn render_interval_fields(
     custom_mins_str: Signal<String>,
     error_tip: Signal<Option<String>>,
@@ -1667,83 +1492,46 @@ fn render_interval_fields(
                         .flex_row()
                         .items_center()
                         .gap(px(3.0))
-                        // 减 1 分钟
                         .child(
-                            view()
-                                .w(px(18.0))
-                                .h(px(19.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().secondary)
-                                .items_center()
-                                .justify_center()
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
+                            view().test_id("custom-mins").flex_row().items_center().gap(px(3.0))
+                                .child(ui::step_button("减少 1 分钟", "-", move || {
                                     let cur = custom_mins_str.get().parse::<u32>().unwrap_or(30);
-                                    let next = cur.saturating_sub(1).max(1);
-                                    custom_mins_str.set(next.to_string());
+                                    custom_mins_str.set(cur.saturating_sub(1).max(1).to_string());
                                     error_tip.set(None);
-                                })
+                                }))
                                 .child(
-                                    text("-")
+                                    input()
+                                        .placeholder("30")
+                                        .value(move || custom_mins_str.get())
+                                        .label("循环周期分钟数")
+                                        .on_change(move |s: &str| {
+                                            let digits: String = s
+                                                .chars()
+                                                .filter(|c| c.is_ascii_digit())
+                                                .take(4)
+                                                .collect();
+                                            custom_mins_str.set(digits);
+                                            error_tip.set(None);
+                                        })
+                                        .w(px(38.0))
+                                        .h(px(19.0))
+                                        .px(px(4.0))
+                                        .rounded(px(3.0))
+                                        .bg(move || theme().background)
+                                        .border_1()
+                                        .border_color(ACCENT_GOLD)
                                         .text_size(px(11.0))
-                                        .text_color(move || theme().secondary_foreground),
-                                ),
-                        )
-                        // 数字文本输入框：支持点击键盘任意输入
-                        .child(
-                            input()
-                                .test_id("custom-mins")
-                                .placeholder("30")
-                                .value(move || custom_mins_str.get())
-                                .on_change(move |s: &str| {
-                                    let digits: String = s
-                                        .chars()
-                                        .filter(|c| c.is_ascii_digit())
-                                        .take(4)
-                                        .collect();
-                                    custom_mins_str.set(digits);
-                                    error_tip.set(None);
-                                })
-                                .w(px(38.0))
-                                .h(px(19.0))
-                                .px(px(4.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().background)
-                                .border_1()
-                                .border_color(ACCENT_GOLD)
-                                .text_size(px(11.0))
-                                .text_color(ACCENT_GOLD),
-                        )
-                        // 加 1 分钟
-                        .child(
-                            view()
-                                .w(px(18.0))
-                                .h(px(19.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().secondary)
-                                .items_center()
-                                .justify_center()
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
+                                        .text_color(ACCENT_GOLD),
+                                )
+                                .child(ui::step_button("增加 1 分钟", "+", move || {
                                     let cur = custom_mins_str.get().parse::<u32>().unwrap_or(30);
-                                    let next = (cur + 1).min(1440);
-                                    custom_mins_str.set(next.to_string());
+                                    custom_mins_str.set((cur + 1).min(1440).to_string());
                                     error_tip.set(None);
-                                })
-                                .child(
-                                    text("+")
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().secondary_foreground),
-                                ),
-                        )
-                        .child(
-                            text("分钟")
-                                .text_size(px(10.0))
-                                .text_color(move || theme().muted_foreground),
+                                })),
                         ),
                 ),
         )
-        // 快捷填入颗粒度胶囊
+        // 快捷填入：一组互斥的 toggle（方向键可在组内移动）
         .child(
             view()
                 .flex_row()
@@ -1755,54 +1543,23 @@ fn render_interval_fields(
                         .text_size(px(9.5))
                         .text_color(move || theme().muted_foreground),
                 )
-                .child(
-                    view()
-                        .flex_row()
-                        .gap(px(3.0))
-                        .children([15, 25, 30, 45, 60, 90].iter().map(|&mins| {
-                            let is_sel =
-                                computed(move || custom_mins_str.get() == mins.to_string());
-                            view()
-                                .px(px(5.0))
-                                .py(px(1.5))
-                                .rounded(px(3.0))
-                                .bg(move || {
-                                    if is_sel.get() {
-                                        ACCENT_GOLD_BG
-                                    } else {
-                                        theme().secondary
-                                    }
-                                })
-                                .border_1()
-                                .border_color(move || {
-                                    if is_sel.get() {
-                                        ACCENT_GOLD
-                                    } else {
-                                        theme().border
-                                    }
-                                })
-                                .active(|s| s.opacity(0.6))
-                                .on_press(move || {
-                                    custom_mins_str.set(mins.to_string());
-                                    error_tip.set(None);
-                                })
-                                .child(
-                                    text(format!("{mins}m"))
-                                        .text_size(px(9.5))
-                                        .text_color(move || {
-                                            if is_sel.get() {
-                                                ACCENT_GOLD
-                                            } else {
-                                                theme().muted_foreground
-                                            }
-                                        }),
-                                )
-                        })),
-                ),
+                .child(ui::choice_group(MINUTE_CHIPS.iter().map(|&(label, mins)| {
+                    ui::choice_chip(
+                        label,
+                        move || custom_mins_str.get() == mins.to_string(),
+                        move |next: bool| {
+                            if next {
+                                custom_mins_str.set(mins.to_string());
+                                error_tip.set(None);
+                            }
+                        },
+                    )
+                }))),
         )
 }
 
-/// 定点时刻配置：时:分输入 + 5 分钟微调 + 常用时刻快捷填入
+/// 定点时刻配置：一个 TimeField（底座 nsh/base 的 time_field，分段编辑、
+/// 上下键步进、读屏按时间段朗读）+ 常用时刻胶囊。
 fn render_daily_fields(
     custom_hour_str: Signal<String>,
     custom_minute_str: Signal<String>,
@@ -1822,150 +1579,34 @@ fn render_daily_fields(
                         .text_color(move || theme().muted_foreground),
                 )
                 .child(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap(px(3.0))
-                        // 小时 -1（跨 0 点回绕）
-                        .child(
-                            view()
-                                .w(px(18.0))
-                                .h(px(19.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().secondary)
-                                .items_center()
-                                .justify_center()
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
-                                    let hour = custom_hour_str.get().parse::<i32>().unwrap_or(0);
-                                    custom_hour_str.set(format!("{:02}", (hour + 23) % 24));
-                                    error_tip.set(None);
-                                })
-                                .child(
-                                    text("-")
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().secondary_foreground),
-                                ),
-                        )
-                        .child(
-                            input()
-                                .test_id("custom-hour")
-                                .placeholder("12")
-                                .value(move || custom_hour_str.get())
-                                .on_change(move |s: &str| {
-                                    let digits: String = s
-                                        .chars()
-                                        .filter(|c| c.is_ascii_digit())
-                                        .take(2)
-                                        .collect();
-                                    custom_hour_str.set(digits);
-                                    error_tip.set(None);
-                                })
-                                .w(px(26.0))
-                                .h(px(19.0))
-                                .px(px(4.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().background)
-                                .border_1()
-                                .border_color(ACCENT_GOLD)
-                                .text_size(px(11.0))
-                                .text_color(ACCENT_GOLD),
-                        )
-                        // 小时 +1
-                        .child(
-                            view()
-                                .w(px(18.0))
-                                .h(px(19.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().secondary)
-                                .items_center()
-                                .justify_center()
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
-                                    let hour = custom_hour_str.get().parse::<i32>().unwrap_or(0);
-                                    custom_hour_str.set(format!("{:02}", (hour + 1) % 24));
-                                    error_tip.set(None);
-                                })
-                                .child(
-                                    text("+")
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().secondary_foreground),
-                                ),
-                        )
-                        .child(
-                            text(":")
-                                .text_size(px(11.0))
-                                .text_color(move || theme().muted_foreground),
-                        )
-                        // 分钟 -5（跨 0 分回绕）
-                        .child(
-                            view()
-                                .w(px(18.0))
-                                .h(px(19.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().secondary)
-                                .items_center()
-                                .justify_center()
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
-                                    let minute = custom_minute_str.get().parse::<i32>().unwrap_or(0);
-                                    custom_minute_str.set(format!("{:02}", (minute + 55) % 60));
-                                    error_tip.set(None);
-                                })
-                                .child(
-                                    text("-")
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().secondary_foreground),
-                                ),
-                        )
-                        .child(
-                            input()
-                                .test_id("custom-minute")
-                                .placeholder("00")
-                                .value(move || custom_minute_str.get())
-                                .on_change(move |s: &str| {
-                                    let digits: String = s
-                                        .chars()
-                                        .filter(|c| c.is_ascii_digit())
-                                        .take(2)
-                                        .collect();
-                                    custom_minute_str.set(digits);
-                                    error_tip.set(None);
-                                })
-                                .w(px(26.0))
-                                .h(px(19.0))
-                                .px(px(4.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().background)
-                                .border_1()
-                                .border_color(ACCENT_GOLD)
-                                .text_size(px(11.0))
-                                .text_color(ACCENT_GOLD),
-                        )
-                        // 分钟 +5
-                        .child(
-                            view()
-                                .w(px(18.0))
-                                .h(px(19.0))
-                                .rounded(px(3.0))
-                                .bg(move || theme().secondary)
-                                .items_center()
-                                .justify_center()
-                                .active(|s| s.opacity(0.5))
-                                .on_press(move || {
-                                    let minute = custom_minute_str.get().parse::<i32>().unwrap_or(0);
-                                    custom_minute_str.set(format!("{:02}", (minute + 5) % 60));
-                                    error_tip.set(None);
-                                })
-                                .child(
-                                    text("+")
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().secondary_foreground),
-                                ),
-                        ),
+                    view().test_id("custom-time").child(
+                    time_field()
+                        .value(time_of_day(
+                            &custom_hour_str.get(),
+                            &custom_minute_str.get(),
+                        ))
+                        .accessibility_label("每天提醒时间")
+                        .on_change(move |value: &TimeOfDay| {
+                            custom_hour_str.set(format!("{:02}", value.0.hour()));
+                            custom_minute_str.set(format!("{:02}", value.0.minute()));
+                            error_tip.set(None);
+                        })
+                        .w(px(72.0))
+                        .h(px(24.0))
+                        .rounded(px(3.0))
+                        .bg(move || theme().background)
+                        .border_1()
+                        .border_color(ACCENT_GOLD)
+                        .segment_style(|s| {
+                            s.text_size(px(11.0)).text_color(ACCENT_GOLD)
+                        })
+                        .separator_style(|s| {
+                            s.text_size(px(11.0)).text_color(ACCENT_GOLD)
+                        }),
+                    ),
                 ),
         )
-        // 常用定点时刻
+        // 常用定点时刻：同样是一组互斥 toggle
         .child(
             view()
                 .flex_row()
@@ -1977,58 +1618,33 @@ fn render_daily_fields(
                         .text_size(px(9.5))
                         .text_color(move || theme().muted_foreground),
                 )
-                .child(
-                    view()
-                        .flex_row()
-                        .gap(px(3.0))
-                        .children(
-                            [("08", "00"), ("12", "00"), ("18", "30"), ("23", "00")]
-                                .iter()
-                                .map(|&(hour, minute)| {
-                                    let is_sel = computed(move || {
-                                        custom_hour_str.get() == hour
-                                            && custom_minute_str.get() == minute
-                                    });
-                                    view()
-                                        .px(px(5.0))
-                                        .py(px(1.5))
-                                        .rounded(px(3.0))
-                                        .bg(move || {
-                                            if is_sel.get() {
-                                                ACCENT_GOLD_BG
-                                            } else {
-                                                theme().secondary
-                                            }
-                                        })
-                                        .border_1()
-                                        .border_color(move || {
-                                            if is_sel.get() {
-                                                ACCENT_GOLD
-                                            } else {
-                                                theme().border
-                                            }
-                                        })
-                                        .active(|s| s.opacity(0.6))
-                                        .on_press(move || {
-                                            custom_hour_str.set(hour.to_string());
-                                            custom_minute_str.set(minute.to_string());
-                                            error_tip.set(None);
-                                        })
-                                        .child(
-                                            text(format!("{hour}:{minute}"))
-                                                .text_size(px(9.5))
-                                                .text_color(move || {
-                                                    if is_sel.get() {
-                                                        ACCENT_GOLD
-                                                    } else {
-                                                        theme().muted_foreground
-                                                    }
-                                                }),
-                                        )
-                                }),
-                        ),
-                ),
+                .child(ui::choice_group(TIME_CHIPS.iter().map(|&(label, hour, minute)| {
+                    ui::choice_chip(
+                        label,
+                        move || {
+                            custom_hour_str.get() == format!("{hour:02}")
+                                && custom_minute_str.get() == format!("{minute:02}")
+                        },
+                        move |next: bool| {
+                            if next {
+                                custom_hour_str.set(format!("{hour:02}"));
+                                custom_minute_str.set(format!("{minute:02}"));
+                                error_tip.set(None);
+                            }
+                        },
+                    )
+                }))),
         )
+}
+
+/// 把「时 / 分」字符串解析成 TimeField 接受的时间；非法值交给它显示的空值。
+fn time_of_day(hour: &str, minute: &str) -> Option<TimeOfDay> {
+    let hour: u32 = hour.trim().parse().ok()?;
+    let minute: u32 = minute.trim().parse().ok()?;
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+    chrono::NaiveTime::from_hms_opt(hour, minute, 0).map(TimeOfDay)
 }
 
 /// 设置与添加新提醒抽屉（点击齿轮展开，支持外观主题切换、窗口不透明度调节、
@@ -2113,72 +1729,23 @@ fn render_drawer(
                                         ),
                                 ),
                         )
-                        .child(
-                            view()
-                                .w_full()
-                                .flex_row()
-                                .gap(px(4.0))
-                                .children([
-                                    (ThemeMode::Light, "浅色模式", icons::ICON_SUN),
-                                    (ThemeMode::Dark, "深色模式", icons::ICON_MOON),
-                                    (ThemeMode::System, "跟随系统", icons::ICON_LAPTOP),
-                                ].into_iter().map(|(mode, label, icon)| {
-                                    let is_selected = computed(move || theme_mode.get() == mode);
-                                    view()
-                                        .flex_1()
-                                        .h(px(24.0))
-                                        .rounded(px(5.0))
-                                        .bg(move || {
-                                            if is_selected.get() {
-                                                ACCENT_GOLD_BG
-                                            } else {
-                                                theme().secondary
-                                            }
-                                        })
-                                        .border_1()
-                                        .border_color(move || {
-                                            if is_selected.get() {
-                                                ACCENT_GOLD
-                                            } else {
-                                                theme().border
-                                            }
-                                        })
-                                        .items_center()
-                                        .justify_center()
-                                        .active(|s| s.opacity(0.6))
-                                        .on_press(move || theme_mode.set(mode))
-                                        .child(
-                                            view()
-                                                .flex_row()
-                                                .items_center()
-                                                .gap(px(4.0))
-                                                .child(
-                                                    icons::icon_svg(
-                                                        icon,
-                                                        11.0,
-                                                        move || {
-                                                            if is_selected.get() {
-                                                                ACCENT_GOLD
-                                                            } else {
-                                                                theme().muted_foreground
-                                                            }
-                                                        },
-                                                    ),
-                                                )
-                                                .child(
-                                                    text(label)
-                                                        .text_size(px(10.5))
-                                                        .text_color(move || {
-                                                            if is_selected.get() {
-                                                                ACCENT_GOLD
-                                                            } else {
-                                                                theme().muted_foreground
-                                                            }
-                                                        }),
-                                                ),
-                                        )
-                                })),
-                        ),
+                        .child(ui::choice_group([
+                            (ThemeMode::Light, "浅色模式", icons::ICON_SUN),
+                            (ThemeMode::Dark, "深色模式", icons::ICON_MOON),
+                            (ThemeMode::System, "跟随系统", icons::ICON_LAPTOP),
+                        ].into_iter().map(|(mode, label, icon)| {
+                            // 三选一，底座 nsh/base 的 toggle_group + toggle
+                            ui::segment_toggle(
+                                label,
+                                icon,
+                                move || theme_mode.get() == mode,
+                                move |next: bool| {
+                                    if next {
+                                        theme_mode.set(mode);
+                                    }
+                                },
+                            )
+                        }))),
                 )
                 // 细分割线
                 .child(
@@ -2296,75 +1863,18 @@ fn render_drawer(
                     collapsible()
                         .open(show_presets)
                         .reveal(true)
-                        .child(
-                            view()
-                                .w_full()
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .rounded(px(5.0))
-                                .bg(move || theme().secondary)
-                                .border_1()
-                                .border_color(move || {
-                                    if show_presets.get() {
-                                        ACCENT_GOLD
-                                    } else {
-                                        theme().border
-                                    }
-                                })
-                                .active(|s| s.opacity(0.6))
-                                .on_press(move || show_presets.update(|v| *v = !*v))
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(px(5.0))
-                                        .child(icons::icon_svg(
-                                            icons::ICON_STAR,
-                                            11.5,
-                                            ACCENT_GOLD,
-                                        ))
-                                        .child(
-                                            text("常用推荐")
-                                                .text_size(px(11.0))
-                                                .text_color(ACCENT_GOLD),
-                                        )
-                                        .child(
-                                            text(format!(
-                                                "({}项预设)",
-                                                INTERVAL_PRESETS.len() + DAILY_PRESETS.len()
-                                            ))
-                                            .text_size(px(10.0))
-                                            .text_color(move || theme().muted_foreground),
-                                        ),
-                                )
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(px(3.0))
-                                        .child(
-                                            text(move || if show_presets.get() { "收起" } else { "展开" })
-                                                .text_size(px(10.5))
-                                                .text_color(move || theme().muted_foreground),
-                                        )
-                                        .child(
-                                            icons::dynamic_icon_svg(
-                                                move || {
-                                                    if show_presets.get() {
-                                                        icons::ICON_CHEVRON_UP
-                                                    } else {
-                                                        icons::ICON_CHEVRON_DOWN
-                                                    }
-                                                },
-                                                11.0,
-                                                move || theme().muted_foreground,
-                                            ),
-                                        ),
-                                ),
-                        )
+                        .child(ui::disclosure_row(
+                            "常用推荐",
+                            icons::ICON_STAR,
+                            format!(
+                                "({}项预设)",
+                                INTERVAL_PRESETS.len() + DAILY_PRESETS.len()
+                            ),
+                            move || show_presets.get(),
+                            "展开",
+                            "收起",
+                            move || show_presets.update(|v| *v = !*v),
+                        ))
                         .content(
                             view()
                                 .w_full()
@@ -2397,67 +1907,15 @@ fn render_drawer(
                     collapsible()
                         .open(show_custom_form)
                         .reveal(true)
-                        .child(
-                            view()
-                                .w_full()
-                                .px(px(8.0))
-                                .py(px(4.0))
-                                .rounded(px(5.0))
-                                .bg(move || theme().secondary)
-                                .border_1()
-                                .border_color(move || {
-                                    if show_custom_form.get() {
-                                        ACCENT_GOLD
-                                    } else {
-                                        theme().border
-                                    }
-                                })
-                                .active(|s| s.opacity(0.6))
-                                .on_press(move || show_custom_form.update(|v| *v = !*v))
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(px(5.0))
-                                        .child(icons::icon_svg(
-                                            icons::ICON_EDIT,
-                                            11.5,
-                                            ACCENT_GOLD,
-                                        ))
-                                        .child(
-                                            text("自定义新提醒")
-                                                .text_size(px(11.0))
-                                                .text_color(ACCENT_GOLD),
-                                        ),
-                                )
-                                .child(
-                                    view()
-                                        .flex_row()
-                                        .items_center()
-                                        .gap(px(3.0))
-                                        .child(
-                                            text(move || if show_custom_form.get() { "收起" } else { "配置" })
-                                                .text_size(px(10.5))
-                                                .text_color(move || theme().muted_foreground),
-                                        )
-                                        .child(
-                                            icons::dynamic_icon_svg(
-                                                move || {
-                                                    if show_custom_form.get() {
-                                                        icons::ICON_CHEVRON_UP
-                                                    } else {
-                                                        icons::ICON_CHEVRON_DOWN
-                                                    }
-                                                },
-                                                11.0,
-                                                move || theme().muted_foreground,
-                                            ),
-                                        ),
-                                ),
-                        )
+                        .child(ui::disclosure_row(
+                            "自定义新提醒",
+                            icons::ICON_EDIT,
+                            String::new(),
+                            move || show_custom_form.get(),
+                            "配置",
+                            "收起",
+                            move || show_custom_form.update(|v| *v = !*v),
+                        ))
                         .content(
                             view()
                                 .w_full()
@@ -2570,109 +2028,45 @@ fn render_drawer(
                                                 .text_size(px(10.0))
                                                 .text_color(move || theme().muted_foreground),
                                         )
-                                        .child(
+                                        // 16 个图标 = 一个 toggle 组，两排铺开
+                                        .child(ui::choice_grid([
                                             view()
-                                                .flex_col()
-                                                .gap(px(3.0))
-                                                // 第一排：生活与健康 (喝水、咖啡、活动、拉伸、护眼、服药、静心、暖阳)
-                                                .child(
-                                                    view()
-                                                        .flex_row()
-                                                        .items_center()
-                                                        .justify_between()
-                                                        .children([
-                                                            "droplet", "coffee", "walk", "activity",
-                                                            "eye", "pill", "heart", "sun",
-                                                        ].iter().map(|&ic| {
-                                                            let is_sel = computed(move || custom_icon.get() == ic);
-                                                            view()
-                                                                .w(px(24.0))
-                                                                .h(px(24.0))
-                                                                .rounded(px(4.0))
-                                                                .bg(move || {
-                                                                    if is_sel.get() {
-                                                                        icons::get_item_adaptive(ic).opacity(0.20)
-                                                                    } else {
-                                                                        theme().secondary
-                                                                    }
-                                                                })
-                                                                .border_1()
-                                                                .border_color(move || {
-                                                                    if is_sel.get() {
-                                                                        icons::get_item_adaptive(ic)
-                                                                    } else {
-                                                                        theme().border
-                                                                    }
-                                                                })
-                                                                .items_center()
-                                                                .justify_center()
-                                                                .active(|s| s.opacity(0.5))
-                                                                .on_press(move || custom_icon.set(ic.to_string()))
-                                                                .child(
-                                                                    icons::icon_svg(
-                                                                        icons::get_icon_markup(ic),
-                                                                        12.0,
-                                                                        move || {
-                                                                            if is_sel.get() {
-                                                                                icons::get_item_adaptive(ic)
-                                                                            } else {
-                                                                                theme().muted_foreground
-                                                                            }
-                                                                        },
-                                                                    ),
-                                                                )
-                                                        })),
-                                                )
-                                                // 第二排：专注与日程 (番茄、阅读、办公、目标、小憩、轻食、排便、闹钟)
-                                                .child(
-                                                    view()
-                                                        .flex_row()
-                                                        .items_center()
-                                                        .justify_between()
-                                                        .children([
-                                                            "clock", "book", "laptop", "target",
-                                                            "moon", "apple", "toilet", "bell",
-                                                        ].iter().map(|&ic| {
-                                                            let is_sel = computed(move || custom_icon.get() == ic);
-                                                            view()
-                                                                .w(px(24.0))
-                                                                .h(px(24.0))
-                                                                .rounded(px(4.0))
-                                                                .bg(move || {
-                                                                    if is_sel.get() {
-                                                                        icons::get_item_adaptive(ic).opacity(0.20)
-                                                                    } else {
-                                                                        theme().secondary
-                                                                    }
-                                                                })
-                                                                .border_1()
-                                                                .border_color(move || {
-                                                                    if is_sel.get() {
-                                                                        icons::get_item_adaptive(ic)
-                                                                    } else {
-                                                                        theme().border
-                                                                    }
-                                                                })
-                                                                .items_center()
-                                                                .justify_center()
-                                                                .active(|s| s.opacity(0.5))
-                                                                .on_press(move || custom_icon.set(ic.to_string()))
-                                                                .child(
-                                                                    icons::icon_svg(
-                                                                        icons::get_icon_markup(ic),
-                                                                        12.0,
-                                                                        move || {
-                                                                            if is_sel.get() {
-                                                                                icons::get_item_adaptive(ic)
-                                                                            } else {
-                                                                                theme().muted_foreground
-                                                                            }
-                                                                        },
-                                                                    ),
-                                                                )
-                                                        })),
-                                                ),
-                                        ),
+                                                .flex_row()
+                                                .items_center()
+                                                .justify_between()
+                                                .children(ICON_CHOICES_LIFE.iter().copied().map(
+                                                    |(ic, label)| {
+                                                        ui::icon_choice(
+                                                            ic,
+                                                            label,
+                                                            move || custom_icon.get() == ic,
+                                                            move |next: bool| {
+                                                                if next {
+                                                                    custom_icon.set(ic.to_string())
+                                                                }
+                                                            },
+                                                        )
+                                                    },
+                                                )),
+                                            view()
+                                                .flex_row()
+                                                .items_center()
+                                                .justify_between()
+                                                .children(ICON_CHOICES_FOCUS.iter().copied().map(
+                                                    |(ic, label)| {
+                                                        ui::icon_choice(
+                                                            ic,
+                                                            label,
+                                                            move || custom_icon.get() == ic,
+                                                            move |next: bool| {
+                                                                if next {
+                                                                    custom_icon.set(ic.to_string())
+                                                                }
+                                                            },
+                                                        )
+                                                    },
+                                                )),
+                                        ]))
                                 )
                                 // Field 4: 底部操作栏
                                 .child(
@@ -2681,36 +2075,14 @@ fn render_drawer(
                                         .items_center()
                                         .justify_between()
                                         .pt(px(2.0))
-                                        .child(
-                                            view()
-                                                .px(px(8.0))
-                                                .h(px(22.0))
-                                                .rounded(px(4.0))
-                                                .bg(move || theme().secondary)
-                                                .items_center()
-                                                .justify_center()
-                                                .active(|s| s.opacity(0.5))
-                                                .on_press(move || {
-                                                    show_custom_form.set(false);
-                                                    error_tip.set(None);
-                                                })
-                                                .child(
-                                                    text("收起")
-                                                        .text_size(px(10.5))
-                                                        .text_color(move || theme().muted_foreground),
-                                                ),
-                                        )
+                                        .child(ui::text_button("收起", false, move || {
+                                            show_custom_form.set(false);
+                                            error_tip.set(None);
+                                        }))
                                         .child(
                                             view()
                                                 .test_id("custom-submit")
-                                                .px(px(12.0))
-                                                .h(px(22.0))
-                                                .rounded(px(4.0))
-                                                .bg(ACCENT_GOLD)
-                                                .items_center()
-                                                .justify_center()
-                                                .active(|s| s.opacity(0.6))
-                                                .on_press(move || {
+                                                .child(ui::text_button("开启提醒", true, move || {
                                                     let name = custom_name.get().trim().to_string();
                                                     if name.is_empty() {
                                                         error_tip.set(Some("请输入名称".to_string()));
@@ -2775,16 +2147,11 @@ fn render_drawer(
                                                     custom_name.set(String::new());
                                                     error_tip.set(None);
                                                     show_custom_form.set(false);
-                                                })
-                                                .child(
-                                                    text("开启提醒")
-                                                        .text_size(px(11.0))
-                                                        .text_color(AdaptiveColor::rgb(0xffffff, 0x000000)),
-                                                ),
-                                        ),
+                                                }))
                                 ),
                         ),
                 ),
+        )
         )
 }
 
