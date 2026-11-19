@@ -559,6 +559,38 @@ fn format_clock(secs: u32) -> String {
     }
 }
 
+/// 将新提醒项插入到列表顶部，保证在主滚动区域内立即可见
+pub(crate) fn insert_item_at_top(list: &mut Vec<ReminderItem>, item: ReminderItem) {
+    list.insert(0, item);
+}
+
+/// 撤销恢复被删提醒项：
+/// 优先根据删除时前一项的 ID (`prev_id`) 找回原相对位置；
+/// 若删除时处于首位（`prev_id` 为 None），则插在原后一项 (`next_id`) 之前；
+/// 若均无法匹配则兜底插入到列表顶部。
+pub(crate) fn undo_restore_item(
+    list: &mut Vec<ReminderItem>,
+    item: ReminderItem,
+    prev_id: Option<u64>,
+    next_id: Option<u64>,
+) {
+    let at = match prev_id {
+        Some(pid) => {
+            if let Some(pos) = list.iter().position(|x| x.id == pid) {
+                pos + 1
+            } else {
+                next_id
+                    .and_then(|nid| list.iter().position(|x| x.id == nid))
+                    .unwrap_or(0)
+            }
+        }
+        None => next_id
+            .and_then(|nid| list.iter().position(|x| x.id == nid))
+            .unwrap_or(0),
+    };
+    list.insert(at.min(list.len()), item);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,5 +908,88 @@ mod tests {
         assert_eq!(format_clock(3600), "01:00:00");
         assert_eq!(format_clock(4 * 3600 + 5 * 60 + 9), "04:05:09");
         assert_eq!(format_clock(10 * 3600), "10:00:00");
+    }
+
+    #[test]
+    fn test_insert_item_at_top() {
+        let mut list = vec![
+            ReminderItem::new("原有任务1", "droplet", 1800),
+            ReminderItem::new("原有任务2", "walk", 2700),
+        ];
+
+        let new_preset = ReminderItem::new("新预设", "moon", 3600);
+        insert_item_at_top(&mut list, new_preset);
+        assert_eq!(list[0].name, "新预设");
+        assert_eq!(list.len(), 3);
+
+        let new_custom = ReminderItem::new("自定义新提醒", "coffee", 1200);
+        insert_item_at_top(&mut list, new_custom);
+        assert_eq!(list[0].name, "自定义新提醒");
+        assert_eq!(list[1].name, "新预设");
+        assert_eq!(list.len(), 4);
+    }
+
+    #[test]
+    fn test_undo_restores_correct_position_after_new_item_inserted_at_top() {
+        let mut list = vec![
+            ReminderItem::new("任务A", "droplet", 1800),
+            ReminderItem::new("任务B", "walk", 2700),
+            ReminderItem::new("任务C", "eye", 1200),
+        ];
+        let id_a = list[0].id;
+        let id_b = list[1].id;
+        let id_c = list[2].id;
+
+        // 1. 删除第 2 项（任务B）
+        let pos = list.iter().position(|x| x.id == id_b).unwrap();
+        assert_eq!(pos, 1);
+        let prev_id = if pos > 0 { Some(list[pos - 1].id) } else { None };
+        let next_id = if pos + 1 < list.len() { Some(list[pos + 1].id) } else { None };
+        assert_eq!(prev_id, Some(id_a));
+        assert_eq!(next_id, Some(id_c));
+        let item_b = list.remove(pos);
+
+        // 2. 5秒内新增提醒「新任务N」，插入到顶部
+        let item_n = ReminderItem::new("新任务N", "coffee", 600);
+        insert_item_at_top(&mut list, item_n);
+        assert_eq!(list[0].name, "新任务N");
+        assert_eq!(list[1].name, "任务A");
+        assert_eq!(list[2].name, "任务C");
+
+        // 3. 点击「撤销」，验证任务B被恢复到第3位（索引2，排在任务A之后、任务C之前）
+        undo_restore_item(&mut list, item_b, prev_id, next_id);
+        assert_eq!(list.len(), 4);
+        assert_eq!(list[0].name, "新任务N");
+        assert_eq!(list[1].name, "任务A");
+        assert_eq!(list[2].name, "任务B");
+        assert_eq!(list[3].name, "任务C");
+    }
+
+    #[test]
+    fn test_undo_first_item_after_new_item_inserted_at_top() {
+        let mut list = vec![
+            ReminderItem::new("任务A", "droplet", 1800),
+            ReminderItem::new("任务B", "walk", 2700),
+        ];
+        let id_a = list[0].id;
+        let id_b = list[1].id;
+
+        // 删除第 1 项（任务A）
+        let pos = list.iter().position(|x| x.id == id_a).unwrap();
+        let prev_id = if pos > 0 { Some(list[pos - 1].id) } else { None };
+        let next_id = if pos + 1 < list.len() { Some(list[pos + 1].id) } else { None };
+        assert_eq!(prev_id, None);
+        assert_eq!(next_id, Some(id_b));
+        let item_a = list.remove(pos);
+
+        // 新增提醒插入到顶部
+        let item_n = ReminderItem::new("新任务N", "coffee", 600);
+        insert_item_at_top(&mut list, item_n);
+
+        // 撤销删除任务A，由于 prev_id=None 且 next_id=任务B，任务A恢复在任务B之前、新任务N之后
+        undo_restore_item(&mut list, item_a, prev_id, next_id);
+        assert_eq!(list[0].name, "新任务N");
+        assert_eq!(list[1].name, "任务A");
+        assert_eq!(list[2].name, "任务B");
     }
 }

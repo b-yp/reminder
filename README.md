@@ -1,6 +1,8 @@
 # reminder
 
-An app written in Rust: its UI is `src/lib.rs`, and `nsh.json` names the root component (`"root": "App"`).
+An app written in Rust, and `nsh.json` names the root component (`"root": "App"`). `src/lib.rs` only declares the
+modules: the root component and its state context are in `src/app/`, the screens in `src/views/`, the platform window
+layer in `src/window.rs`, and the domain modules (`model`, `storage`, `hotkey`, …) at the crate root.
 
 ```sh
 nsh run                      # this machine's backend; --target ios, android, web, macos, linux or windows

@@ -450,4 +450,40 @@ mod tests {
         let _ = fs::remove_file(&file_path);
         let _ = fs::remove_dir(&temp_dir);
     }
+
+    #[test]
+    fn test_full_persistence_integration() {
+        let temp_dir = std::env::temp_dir().join(format!("reminder_integ_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let test_file = temp_dir.join("state.json");
+
+        // 一份窗口摆放样本（`WindowPlacement` 为 non_exhaustive，Default + 字段赋值）
+        let mut placement = nsh_core::desktop::WindowPlacement::default();
+        placement.bounds = bounds(point(px(500.0), px(300.0)), size(px(320.0), px(350.0)));
+
+        let mut state = AppState::default();
+        state.opacity = 0.75;
+        state.theme_mode = ThemeMode::Light;
+        state.window_placement = Some(placement);
+        state.is_mini = true;
+        state.items.push(ReminderItem::new("自定义喝咖啡", "coffee", 1800));
+        state.items[0].completed_count = 12;
+        state.items[0].completed_by_day.insert(20_000, 12);
+
+        let res = save_state_to_path(&mut state, &test_file);
+        assert!(res.is_ok());
+
+        let loaded = load_state_from_path(&test_file);
+        assert_eq!(loaded.opacity, 0.75);
+        assert_eq!(loaded.theme_mode, ThemeMode::Light);
+        assert_eq!(loaded.window_placement, Some(placement));
+        assert!(loaded.is_mini);
+        assert_eq!(loaded.items.len(), 4);
+        assert_eq!(loaded.items[0].completed_count, 12);
+        assert_eq!(loaded.items[0].completed_by_day.get(&20_000), Some(&12));
+        assert_eq!(loaded.items[3].name, "自定义喝咖啡");
+
+        let _ = std::fs::remove_file(&test_file);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
