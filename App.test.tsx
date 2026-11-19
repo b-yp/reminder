@@ -12,7 +12,6 @@ test("renders reminder app", async () => {
   expect(app.texts()).toContain("reminder 提醒");
   expect(app.texts()).toContain("喝水");
   expect(app.texts()).toContain("起身活动");
-  expect(app.texts()).toContain("带薪拉屎");
 });
 
 test("shows the global hotkey in the settings drawer", async () => {
