@@ -260,6 +260,12 @@ pub const WINDOW_HEIGHT: f32 = 350.0;
 pub const MINI_WIDTH: f32 = 196.0;
 pub const MINI_HEIGHT: f32 = 44.0;
 
+/// 自定义新提醒表单的初始值：新建抽屉每次打开都回到这里，与首次打开完全一致
+const DRAFT_MINS: &str = "30";
+const DRAFT_HOUR: &str = "12";
+const DRAFT_MINUTE: &str = "00";
+const DRAFT_ICON: &str = "bell";
+
 /// 循环周期的快捷填入（标签, 分钟）
 const MINUTE_CHIPS: &[(&str, u32)] = &[
     ("15m", 15),
@@ -506,9 +512,11 @@ pub fn App() -> impl IntoElement {
     let autostart_enabled = signal(autostart::is_enabled());
     let autostart_error = signal(Option::<String>::None);
     let last_saved_placement = signal(initial_state.window_placement);
+    let show_add = signal(false);
     let show_settings = signal(false);
-    let show_presets = signal(false);
-    let show_custom_form = signal(false);
+    // 空列表入口请求「新建」抽屉复位一次：抽屉已经打开时 `show_add.set(true)` 是空操作，
+    // 靠这个 tick 把页签和草稿强制拉回干净首屏
+    let add_reset = signal(0u64);
     // 删除后的撤销窗口：同时只保留一条，新的删除会让上一条直接转正
     let pending_delete = signal(Option::<PendingDelete>::None);
     // 鼠标是否悬停在撤销 Toast 上（悬停时暂停倒计时）
@@ -723,6 +731,7 @@ pub fn App() -> impl IntoElement {
 
     let enter_mini = move || {
         is_mini.set(true);
+        show_add.set(false);
         show_settings.set(false);
         desktop::main_window().set_bounds(WindowFrame {
             width: Some(px(MINI_WIDTH)),
@@ -766,9 +775,9 @@ pub fn App() -> impl IntoElement {
             render_full_card(
                 items,
                 is_all_paused,
+                show_add,
                 show_settings,
-                show_presets,
-                show_custom_form,
+                add_reset,
                 opacity,
                 theme_mode,
                 hotkey,
@@ -793,9 +802,9 @@ pub fn App() -> impl IntoElement {
 fn render_full_card(
     items: Signal<Vec<ReminderItem>>,
     is_all_paused: Signal<bool>,
+    show_add: Signal<bool>,
     show_settings: Signal<bool>,
-    show_presets: Signal<bool>,
-    show_custom_form: Signal<bool>,
+    add_reset: Signal<u64>,
     opacity: Signal<f32>,
     theme_mode: Signal<ThemeMode>,
     hotkey: Signal<String>,
@@ -819,8 +828,8 @@ fn render_full_card(
         .p(px(14.0))
         .flex_col()
         .justify_between()
-        // 1. 顶栏：通用「reminder 提醒」金黄微标与标题，右侧挂件操作按钮组（暂停、设置、收起胶囊、收进托盘）
-        .child(render_header(items, is_all_paused, show_settings, on_enter_mini, on_save))
+        // 1. 顶栏：通用「reminder 提醒」金黄微标与标题，右侧挂件操作按钮组（新建、暂停、设置、收起胶囊、收进托盘）
+        .child(render_header(items, is_all_paused, show_add, show_settings, on_enter_mini, on_save))
         // 2. 核心内容滚动区：抽屉展开与列表统一容纳，高了自行平滑滚动，大窗口全程稳定
         .child(
             scroll()
@@ -834,12 +843,16 @@ fn render_full_card(
                         .w_full()
                         .flex_col()
                         .gap(px(6.0))
-                        // 新建/设置抽屉（包含外观主题选择、透明度调节、推荐预设与自定义提醒）
-                        .child(render_drawer(
-                            show_settings,
-                            show_presets,
-                            show_custom_form,
+                        // 独立新建提醒抽屉（集成常用推荐预设与自定义新提醒配置）
+                        .child(render_add_drawer(
+                            show_add,
+                            add_reset,
                             items,
+                            on_save,
+                        ))
+                        // 独立偏好设置抽屉（外观主题选择、透明度调节、全局热键、开机自启）
+                        .child(render_settings_drawer(
+                            show_settings,
                             opacity,
                             theme_mode,
                             hotkey,
@@ -853,8 +866,10 @@ fn render_full_card(
                         .child(render_items(
                             items,
                             move || {
-                                show_settings.set(true);
-                                show_presets.set(true);
+                                show_add.set(true);
+                                show_settings.set(false);
+                                // 抽屉已经打开时 set(true) 是空操作，用 tick 让页签和草稿复位
+                                add_reset.update(|tick| *tick = tick.wrapping_add(1));
                             },
                             on_save,
                             on_delete,
@@ -1093,10 +1108,11 @@ fn render_mini_capsule(
         )
 }
 
-/// 顶部 Header：左侧金黄微标与标题，右侧挂件操作按钮组（暂停、设置/添加、收起为胶囊、收进托盘）
+/// 顶部 Header：左侧金黄微标与标题，右侧挂件操作按钮组（新建、暂停、偏好设置、收起为胶囊、收进托盘）
 fn render_header(
     items: Signal<Vec<ReminderItem>>,
     is_all_paused: Signal<bool>,
+    show_add: Signal<bool>,
     show_settings: Signal<bool>,
     on_enter_mini: impl Fn() + Copy + 'static,
     on_save: impl Fn() + Copy + 'static,
@@ -1114,39 +1130,68 @@ fn render_header(
             view()
                 .flex_row()
                 .items_center()
-                .gap(px(8.0))
+                .gap(px(6.0))
                 .child(
                     // App Logo 微标
                     image(LOGO)
-                        .size(px(24.0))
-                        .rounded(px(6.0)),
+                        .size(px(22.0))
+                        .rounded(px(5.0)),
                 )
                 .child(
                     text("reminder 提醒")
-                        .text_size(px(13.5))
+                        .text_size(px(13.0))
                         .text_color(move || theme().foreground),
                 )
                 .child(
                     // 进行中数量指示小徽章
                     view()
-                        .px(px(6.0))
-                        .py(px(1.5))
+                        .px(px(5.0))
+                        .py(px(1.0))
                         .rounded(px(10.0))
                         .bg(move || theme().muted)
                         .child(
                             text(move || count_text.get())
-                                .text_size(px(10.5))
+                                .text_size(px(10.0))
                                 .text_color(move || theme().muted_foreground),
                         ),
                 ),
         )
-        // 右侧挂件专属操作按钮组：暂停/恢复全部、展开设置/新建抽屉、收进托盘
+        // 右侧挂件专属操作按钮组：新建提醒、暂停/恢复全部、偏好设置、收起胶囊、收进托盘
         .child(
             view()
                 .window_drag(false) // 按钮区域不触发窗口拖拽
                 .flex_row()
                 .items_center()
-                .gap(px(6.0))
+                .gap(px(4.0))
+                // 新建提醒
+                .child(
+                    view()
+                        .test_id("add-toggle")
+                        .child(ui::icon_button(
+                            "新建提醒",
+                            move || show_add.get(),
+                            || false,
+                            move || {
+                                let next = !show_add.get();
+                                show_add.set(next);
+                                if next {
+                                    show_settings.set(false);
+                                }
+                            },
+                            icons::dynamic_icon_svg(
+                                move || icons::ICON_PLUS,
+                                12.0,
+                                move || {
+                                    if show_add.get() {
+                                        ACCENT_GOLD_STRONG
+                                    } else {
+                                        theme().muted_foreground
+                                    }
+                                },
+                            ),
+                        ))
+                        .tooltip(ui::tooltip_bubble("新建提醒")),
+                )
                 // 暂停 / 播放全部
                 .child(
                     view()
@@ -1172,15 +1217,21 @@ fn render_header(
                             }
                         })),
                 )
-                // 设置 / 新建
+                // 偏好设置
                 .child(
                     view()
                         .test_id("settings-toggle")
                         .child(ui::icon_button(
-                            "设置与新建提醒",
+                            "偏好设置",
                             move || show_settings.get(),
                             || false,
-                            move || show_settings.update(|v| *v = !*v),
+                            move || {
+                                let next = !show_settings.get();
+                                show_settings.set(next);
+                                if next {
+                                    show_add.set(false);
+                                }
+                            },
                             icons::dynamic_icon_svg(
                                 move || icons::ICON_SETTINGS,
                                 12.0,
@@ -1193,7 +1244,7 @@ fn render_header(
                                 },
                             ),
                         ))
-                        .tooltip(ui::tooltip_bubble("设置与新建提醒")),
+                        .tooltip(ui::tooltip_bubble("偏好设置")),
                 )
                 // 收起为迷你灵动岛胶囊
                 .child(
@@ -1970,13 +2021,9 @@ fn time_of_day(hour: &str, minute: &str) -> Option<TimeOfDay> {
     chrono::NaiveTime::from_hms_opt(hour, minute, 0).map(TimeOfDay)
 }
 
-/// 设置与添加新提醒抽屉（点击齿轮展开，支持外观主题切换、窗口不透明度调节、
-/// 全局热键开关、推荐快速开启与优雅折叠的自定义新提醒）
-fn render_drawer(
+/// 偏好设置抽屉（点击齿轮展开，支持外观主题切换、窗口不透明度调节、全局热键与开机自启）
+fn render_settings_drawer(
     show: Signal<bool>,
-    show_presets: Signal<bool>,
-    show_custom_form: Signal<bool>,
-    items: Signal<Vec<ReminderItem>>,
     opacity: Signal<f32>,
     theme_mode: Signal<ThemeMode>,
     hotkey: Signal<String>,
@@ -1986,15 +2033,6 @@ fn render_drawer(
     autostart_error: Signal<Option<String>>,
     on_save: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
-    let custom_name = signal(String::new());
-    let custom_mins_str = signal("30".to_string());
-    // 提醒方式：false = 循环周期，true = 每天定点
-    let custom_daily = signal(false);
-    let custom_hour_str = signal("12".to_string());
-    let custom_minute_str = signal("00".to_string());
-    let custom_icon = signal("bell".to_string());
-    let error_tip = signal(Option::<String>::None);
-
     collapsible()
         .open(show)
         .reveal(true)
@@ -2172,36 +2210,119 @@ fn render_drawer(
                         .border_color(move || theme().border),
                 )
                 // 4. 开机自启：登录系统后自动运行挂件，开关直接写系统启动项
-                .child(render_autostart_setting(autostart_enabled, autostart_error))
-                // 细分割线
+                .child(render_autostart_setting(autostart_enabled, autostart_error)),
+        )
+}
+
+/// 「新建提醒」抽屉的页签与自定义表单草稿。
+///
+/// 默认值只在这里写一份：首次打开与之后每次重新打开都回到同一份初始状态，
+/// 复位逻辑（[`AddDraft::reset`]）不会再和 `signal(...)` 的初始值各写一遍。
+#[derive(Clone, Copy)]
+struct AddDraft {
+    /// 当前页签：false = 常用推荐，true = 自定义新提醒
+    tab_custom: Signal<bool>,
+    name: Signal<String>,
+    /// 循环周期（分钟）
+    mins: Signal<String>,
+    /// 提醒方式：false = 循环周期，true = 每天定点
+    daily: Signal<bool>,
+    hour: Signal<String>,
+    minute: Signal<String>,
+    icon: Signal<String>,
+    error: Signal<Option<String>>,
+}
+
+impl Default for AddDraft {
+    fn default() -> Self {
+        Self {
+            tab_custom: signal(false),
+            name: signal(String::new()),
+            mins: signal(DRAFT_MINS.to_string()),
+            daily: signal(false),
+            hour: signal(DRAFT_HOUR.to_string()),
+            minute: signal(DRAFT_MINUTE.to_string()),
+            icon: signal(DRAFT_ICON.to_string()),
+            error: signal(None),
+        }
+    }
+}
+
+impl AddDraft {
+    /// 回到「干净首屏」：推荐页签、空名称、默认周期/时刻/图标、无错误提示
+    fn reset(&self) {
+        self.tab_custom.set(false);
+        self.name.set(String::new());
+        self.mins.set(DRAFT_MINS.to_string());
+        self.daily.set(false);
+        self.hour.set(DRAFT_HOUR.to_string());
+        self.minute.set(DRAFT_MINUTE.to_string());
+        self.icon.set(DRAFT_ICON.to_string());
+        self.error.set(None);
+    }
+}
+
+/// 新建提醒抽屉（点击加号展开，集成常用推荐预设与自定义新提醒配置）。
+///
+/// 每次打开都从「常用推荐」和空草稿开始；收起时保持原样，
+/// 所以收起动画里不会先闪换成推荐页。
+fn render_add_drawer(
+    show: Signal<bool>,
+    add_reset: Signal<u64>,
+    items: Signal<Vec<ReminderItem>>,
+    on_save: impl Fn() + Copy + 'static,
+) -> impl IntoElement {
+    let draft = AddDraft::default();
+
+    // 打开（或空列表入口强制）时复位。`add_reset` 只用来订阅：
+    // 抽屉已打开时 `show` 不变，靠它把页签和草稿拉回干净首屏。
+    effect(move || {
+        let _ = add_reset.get();
+        if show.get() {
+            draft.reset();
+        }
+    });
+
+    collapsible()
+        .open(show)
+        .reveal(true)
+        .content(
+            view()
+                .window_drag(false)
+                .p(px(8.0))
+                .mb(px(4.0))
+                .rounded(px(8.0))
+                .bg(move || theme().muted.opacity(0.40))
+                .border_1()
+                .border_color(move || theme().border)
+                .flex_col()
+                .gap(px(6.0))
+                // 顶部分段选择：【常用推荐】与【自定义新提醒】
                 .child(
-                    view()
-                        .w_full()
-                        .my(px(2.0))
-                        .border_t_1()
-                        .border_color(move || theme().border),
+                    ui::choice_group([
+                        (false, "常用推荐", icons::ICON_STAR),
+                        (true, "自定义新提醒", icons::ICON_EDIT),
+                    ].into_iter().map(|(is_custom, label, icon)| {
+                        ui::segment_toggle(
+                            label,
+                            icon,
+                            move || draft.tab_custom.get() == is_custom,
+                            move |next: bool| {
+                                if next {
+                                    draft.tab_custom.set(is_custom);
+                                    draft.error.set(None);
+                                }
+                            },
+                        )
+                    }))
                 )
-                // 5. 基于 Collapsible 的常用推荐区域：支持平滑折叠，预设 6 项精炼对称双列卡片排版
+                // 模式切换区：常用推荐网格 vs 自定义配置表单
                 .child(
-                    collapsible()
-                        .open(show_presets)
-                        .reveal(true)
-                        .child(ui::disclosure_row(
-                            "常用推荐",
-                            icons::ICON_STAR,
-                            format!(
-                                "({}项预设)",
-                                INTERVAL_PRESETS.len() + DAILY_PRESETS.len()
-                            ),
-                            move || show_presets.get(),
-                            "展开",
-                            "收起",
-                            move || show_presets.update(|v| *v = !*v),
-                        ))
-                        .content(
+                    when(
+                        move || !draft.tab_custom.get(),
+                        move || {
                             view()
                                 .w_full()
-                                .mt(px(4.0))
                                 .p(px(6.0))
                                 .rounded(px(6.0))
                                 .bg(move || theme().card)
@@ -2214,36 +2335,13 @@ fn render_drawer(
                                 .child(render_preset_grid(INTERVAL_PRESETS, items, on_save))
                                 // 定点时刻：每天同一时刻提醒（午餐 / 下班 / 睡觉）
                                 .child(preset_section_label("定点时刻", "每天到点提醒"))
-                                .child(render_preset_grid(DAILY_PRESETS, items, on_save)),
-                        ),
-                )
-                // 细分割线
-                .child(
-                    view()
-                        .w_full()
-                        .my(px(2.0))
-                        .border_t_1()
-                        .border_color(move || theme().border),
-                )
-                // 6. 基于 Collapsible 的自定义新提醒区域：默认收起，点击平滑展开完整配置面板
-                .child(
-                    collapsible()
-                        .open(show_custom_form)
-                        .reveal(true)
-                        .child(ui::disclosure_row(
-                            "自定义新提醒",
-                            icons::ICON_EDIT,
-                            String::new(),
-                            move || show_custom_form.get(),
-                            "配置",
-                            "收起",
-                            move || show_custom_form.update(|v| *v = !*v),
-                        ))
-                        .content(
-                            view()
-                                .w_full()
-                                .mt(px(4.0))
-                                .p(px(8.0))
+                                .child(render_preset_grid(DAILY_PRESETS, items, on_save))
+                        },
+                    )
+                    .otherwise(move || {
+                        view()
+                            .w_full()
+                            .p(px(8.0))
                                 .rounded(px(6.0))
                                 .bg(move || theme().card)
                                 .border_1()
@@ -2266,7 +2364,7 @@ fn render_drawer(
                                                         .text_color(move || theme().muted_foreground),
                                                 )
                                                 .child(
-                                                    text(move || error_tip.get().unwrap_or_default())
+                                                    text(move || draft.error.get().unwrap_or_default())
                                                         .text_size(px(10.5))
                                                         .text_color(move || ACCENT_DANGER_FG),
                                                 ),
@@ -2275,10 +2373,10 @@ fn render_drawer(
                                             input()
                                                 .test_id("custom-name")
                                                 .placeholder("如：站姿切换、滴眼药水、工位通风")
-                                                .value(move || custom_name.get())
+                                                .value(move || draft.name.get())
                                                 .on_change(move |s: &str| {
-                                                    custom_name.set(s.to_string());
-                                                    error_tip.set(None);
+                                                    draft.name.set(s.to_string());
+                                                    draft.error.set(None);
                                                 })
                                                 .w_full()
                                                 .h(px(25.0))
@@ -2312,13 +2410,13 @@ fn render_drawer(
                                                         .items_center()
                                                         .gap(px(3.0))
                                                         .child(schedule_mode_button(
-                                                            custom_daily,
+                                                            draft.daily,
                                                             false,
                                                             "循环周期",
                                                             "schedule-mode-interval",
                                                         ))
                                                         .child(schedule_mode_button(
-                                                            custom_daily,
+                                                            draft.daily,
                                                             true,
                                                             "每天定点",
                                                             "schedule-mode-daily",
@@ -2327,17 +2425,17 @@ fn render_drawer(
                                         )
                                         .child(
                                             when(
-                                                move || custom_daily.get(),
+                                                move || draft.daily.get(),
                                                 move || {
                                                     render_daily_fields(
-                                                        custom_hour_str,
-                                                        custom_minute_str,
-                                                        error_tip,
+                                                        draft.hour,
+                                                        draft.minute,
+                                                        draft.error,
                                                     )
                                                 },
                                             )
                                             .otherwise(move || {
-                                                render_interval_fields(custom_mins_str, error_tip)
+                                                render_interval_fields(draft.mins, draft.error)
                                             }),
                                         ),
                                 )
@@ -2362,10 +2460,10 @@ fn render_drawer(
                                                         ui::icon_choice(
                                                             ic,
                                                             label,
-                                                            move || custom_icon.get() == ic,
+                                                            move || draft.icon.get() == ic,
                                                             move |next: bool| {
                                                                 if next {
-                                                                    custom_icon.set(ic.to_string())
+                                                                    draft.icon.set(ic.to_string())
                                                                 }
                                                             },
                                                         )
@@ -2380,10 +2478,10 @@ fn render_drawer(
                                                         ui::icon_choice(
                                                             ic,
                                                             label,
-                                                            move || custom_icon.get() == ic,
+                                                            move || draft.icon.get() == ic,
                                                             move |next: bool| {
                                                                 if next {
-                                                                    custom_icon.set(ic.to_string())
+                                                                    draft.icon.set(ic.to_string())
                                                                 }
                                                             },
                                                         )
@@ -2399,55 +2497,54 @@ fn render_drawer(
                                         .justify_between()
                                         .pt(px(2.0))
                                         .child(ui::text_button("收起", false, move || {
-                                            show_custom_form.set(false);
-                                            error_tip.set(None);
+                                            show.set(false);
                                         }))
                                         .child(
                                             view()
                                                 .test_id("custom-submit")
                                                 .child(ui::text_button("开启提醒", true, move || {
-                                                    let name = custom_name.get().trim().to_string();
+                                                    let name = draft.name.get().trim().to_string();
                                                     if name.is_empty() {
-                                                        error_tip.set(Some("请输入名称".to_string()));
+                                                        draft.error.set(Some("请输入名称".to_string()));
                                                         return;
                                                     }
                                                     // 按当前模式解析出计时方式
-                                                    let (schedule, interval_mins) = if custom_daily.get() {
-                                                        let hour = match custom_hour_str.get().trim().parse::<u32>() {
+                                                    let (schedule, interval_mins) = if draft.daily.get() {
+                                                        let hour = match draft.hour.get().trim().parse::<u32>() {
                                                             Ok(hour) if hour <= 23 => hour,
                                                             _ => {
-                                                                error_tip.set(Some("小时需在 0-23 之间".to_string()));
+                                                                draft.error.set(Some("小时需在 0-23 之间".to_string()));
                                                                 return;
                                                             }
                                                         };
-                                                        let minute = match custom_minute_str.get().trim().parse::<u32>() {
+                                                        let minute = match draft.minute.get().trim().parse::<u32>() {
                                                             Ok(minute) if minute <= 59 => minute,
                                                             _ => {
-                                                                error_tip.set(Some("分钟需在 0-59 之间".to_string()));
+                                                                draft.error.set(Some("分钟需在 0-59 之间".to_string()));
                                                                 return;
                                                             }
                                                         };
                                                         (Schedule::daily(hour, minute), 0)
                                                     } else {
-                                                        let mins = match custom_mins_str.get().trim().parse::<u32>() {
+                                                        let mins = match draft.mins.get().trim().parse::<u32>() {
                                                             Ok(mins) if mins > 0 => mins,
                                                             _ => {
-                                                                error_tip.set(Some("请输入有效分钟数(≥1)".to_string()));
+                                                                draft.error.set(Some("请输入有效分钟数(≥1)".to_string()));
                                                                 return;
                                                             }
                                                         };
                                                         if mins > 1440 {
-                                                            error_tip.set(Some("时长上限为 1440 分钟 (24小时)".to_string()));
+                                                            draft.error.set(Some("时长上限为 1440 分钟 (24小时)".to_string()));
                                                             return;
                                                         }
                                                         (Schedule::Interval, mins)
                                                     };
                                                     if items.with(|list| list.iter().any(|x| x.name == name)) {
-                                                        error_tip.set(Some("该提醒已在列表中".to_string()));
+                                                        draft.error.set(Some("该提醒已在列表中".to_string()));
                                                         return;
                                                     }
                                                     let now = localtime::now();
-                                                    let icon = custom_icon.get();
+                                                    let icon = draft.icon.get();
                                                     let item = match schedule {
                                                         Schedule::Interval => {
                                                             ReminderItem::new(
@@ -2470,14 +2567,13 @@ fn render_drawer(
                                                         insert_item_at_top(list, item);
                                                     });
                                                     on_save();
-                                                    custom_name.set(String::new());
-                                                    error_tip.set(None);
-                                                    show_custom_form.set(false);
+                                                    show.set(false);
                                                 }))
-                                ),
-                        ),
+                                        ),
+                                )
+                        }
+                    ),
                 ),
-        )
         )
 }
 
