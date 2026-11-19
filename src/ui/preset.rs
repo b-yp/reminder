@@ -3,6 +3,7 @@
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
 
+use super::tokens::{font, radius, size};
 use crate::icons;
 use crate::theme_mode::{ACCENT_DONE_BG, ACCENT_DONE_BORDER, ACCENT_DONE_FG};
 
@@ -21,7 +22,7 @@ pub fn preset_card(
         .flex_1()
         .px(px(7.0))
         .py(px(5.0))
-        .rounded(px(5.0))
+        .rounded(px(radius::LG))
         .flex_row()
         .items_center()
         .justify_between()
@@ -50,7 +51,7 @@ pub fn preset_card(
             })
         })
         .active(|s| s.scale(0.98).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .on_press(move || on_press())
         .child(
@@ -63,7 +64,7 @@ pub fn preset_card(
                     12.0,
                     icons::get_item_adaptive(icon_key),
                 ))
-                .child(text(name).text_size(px(10.5)).text_color(move || {
+                .child(text(name).text_size(px(font::CAPTION)).text_color(move || {
                     if added() {
                         ACCENT_DONE_FG
                     } else {
@@ -75,7 +76,7 @@ pub fn preset_card(
             view()
                 .px(px(4.0))
                 .py(px(1.5))
-                .rounded(px(3.0))
+                .rounded(px(radius::SM))
                 .bg(move || {
                     if added() {
                         ACCENT_DONE_BORDER.opacity(0.35)
@@ -83,7 +84,7 @@ pub fn preset_card(
                         theme().muted
                     }
                 })
-                .child(text(badge).text_size(px(10.5)).text_color(move || {
+                .child(text(badge).text_size(px(font::CAPTION)).text_color(move || {
                     if added() {
                         ACCENT_DONE_FG
                     } else {

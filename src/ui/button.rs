@@ -3,6 +3,7 @@
 //! 底座是 `nsh/base` 的 `button`：它自带按钮角色、Tab 可达、Enter / Space
 //! 触发、禁用语义与 `focus-visible` 的键盘焦点；这里只补外观与状态色。
 use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_GOLD_FG};
+use super::tokens::{font, motion, radius, size};
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
 /// 按钮语气：页面按语义挑，不写颜色。
@@ -29,9 +30,9 @@ pub fn icon_button(
         .accessibility_label(label)
         .selected(selected)
         .disabled(disabled)
-        .w(px(24.0))
-        .h(px(24.0))
-        .rounded(px(6.0))
+        .w(px(size::CONTROL_MD))
+        .h(px(size::CONTROL_MD))
+        .rounded(px(radius::LG))
         .flex_row()
         .items_center()
         .justify_center()
@@ -60,11 +61,11 @@ pub fn icon_button(
             })
         })
         .active(|s| s.scale(0.94).opacity(0.88))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .disabled_style(|s| s.opacity(0.35))
         .transition_transform()
         .transition_colors()
-        .duration(move || if reduce_motion() { 0.0_f32 } else { 120.0_f32 })
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(content)
 }
@@ -84,8 +85,8 @@ pub fn action_button(
         .accessibility_label(label)
         .disabled(disabled)
         .w(px(width))
-        .h(px(24.0))
-        .rounded(px(5.0))
+        .h(px(size::CONTROL_MD))
+        .rounded(px(radius::LG))
         .flex_row()
         .items_center()
         .justify_center()
@@ -103,11 +104,11 @@ pub fn action_button(
             ActionTone::Accent => s.opacity(0.92),
         })
         .active(|s| s.scale(0.92).opacity(0.85))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .disabled_style(|s| s.opacity(0.35))
         .transition_transform()
         .transition_colors()
-        .duration(move || if reduce_motion() { 0.0_f32 } else { 120.0_f32 })
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(content)
 }
@@ -117,14 +118,14 @@ pub fn tooltip_bubble(label: &'static str) -> AnyElement {
     view()
         .px(px(8.0))
         .py(px(4.0))
-        .rounded(px(6.0))
+        .rounded(px(radius::LG))
         .bg(move || theme().popover)
         .border_1()
         .border_color(move || theme().border)
         .shadow_sm()
         .child(
             text(label)
-                .text_size(px(11.0))
+                .text_size(px(font::BODY))
                 .text_color(move || theme().popover_foreground),
         )
         .into_element()
@@ -135,14 +136,14 @@ pub fn dynamic_tooltip_bubble(label: impl Fn() -> &'static str + 'static) -> Any
     view()
         .px(px(8.0))
         .py(px(4.0))
-        .rounded(px(6.0))
+        .rounded(px(radius::LG))
         .bg(move || theme().popover)
         .border_1()
         .border_color(move || theme().border)
         .shadow_sm()
         .child(
             text(label)
-                .text_size(px(11.0))
+                .text_size(px(font::BODY))
                 .text_color(move || theme().popover_foreground),
         )
         .into_element()
@@ -158,7 +159,7 @@ pub fn micro_button(
         .accessibility_label(accessibility_label)
         .px(px(4.0))
         .py(px(0.5))
-        .rounded(px(3.0))
+        .rounded(px(radius::SM))
         .flex_row()
         .items_center()
         .justify_center()
@@ -167,16 +168,16 @@ pub fn micro_button(
         .border_color(move || theme().border)
         .hover(move |s| s.bg(move || theme().secondary))
         .active(|s| s.scale(0.96).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .on_press(move || on_press())
         .child(
             text(label)
-                .text_size(px(10.5))
+                .text_size(px(font::CAPTION))
                 .text_color(move || theme().muted_foreground),
         )
 }
-/// 数字微调按钮：18×19 的「−」「+」，贴在输入框两侧。
+/// 数字微调按钮：20×20 的「−」「+」，贴在输入框两侧。
 pub fn step_button(
     label: &'static str,
     sign: &'static str,
@@ -185,9 +186,9 @@ pub fn step_button(
     button()
         .role(AccessibilityRole::Button)
         .accessibility_label(label)
-        .w(px(18.0))
-        .h(px(19.0))
-        .rounded(px(3.0))
+        .w(px(size::CONTROL_SM))
+        .h(px(size::CONTROL_SM))
+        .rounded(px(radius::SM))
         .flex_row()
         .items_center()
         .justify_center()
@@ -196,12 +197,12 @@ pub fn step_button(
         .border_color(move || theme().border)
         .hover(move |s| s.bg(move || theme().muted))
         .active(|s| s.scale(0.94).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .on_press(move || on_press())
         .child(
             text(sign)
-                .text_size(px(11.0))
+                .text_size(px(font::BODY))
                 .text_color(move || theme().secondary_foreground),
         )
 }
@@ -214,8 +215,8 @@ pub fn text_button(
     button()
         .role(AccessibilityRole::Button)
         .accessibility_label(label)
-        .h(px(22.0))
-        .rounded(px(4.0))
+        .h(px(size::CONTROL_SM))
+        .rounded(px(radius::MD))
         .flex_row()
         .items_center()
         .justify_center()
@@ -234,12 +235,12 @@ pub fn text_button(
                 .bg(move || if primary { ACCENT_GOLD } else { theme().muted })
         })
         .active(|s| s.scale(0.97).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .on_press(move || on_press())
         .child(
             text(label)
-                .text_size(px(if primary { 11.0 } else { 10.5 }))
+                .text_size(px(if primary { font::BODY } else { font::CAPTION }))
                 .text_color(move || {
                     if primary {
                         ACCENT_GOLD_FG
@@ -255,9 +256,9 @@ pub fn undo_button(label: &'static str, on_press: impl Fn() + 'static) -> impl I
     button()
         .role(AccessibilityRole::Button)
         .accessibility_label(label)
-        .h(px(20.0))
+        .h(px(size::CONTROL_SM))
         .px(px(8.0))
-        .rounded(px(4.0))
+        .rounded(px(radius::MD))
         .flex_row()
         .items_center()
         .justify_center()
@@ -266,12 +267,12 @@ pub fn undo_button(label: &'static str, on_press: impl Fn() + 'static) -> impl I
         .border_color(move || ACCENT_GOLD)
         .hover(move |s| s.opacity(0.92))
         .active(|s| s.scale(0.95).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .on_press(move || on_press())
         .child(
             text(label)
-                .text_size(px(10.5))
+                .text_size(px(font::CAPTION))
                 .text_color(move || ACCENT_GOLD_FG),
         )
 }

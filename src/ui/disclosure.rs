@@ -4,6 +4,7 @@
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
 
+use super::tokens::{font, radius, size};
 use crate::icons;
 use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_STRONG};
 
@@ -22,7 +23,7 @@ pub fn disclosure_row(
         .w_full()
         .px(px(8.0))
         .py(px(4.0))
-        .rounded(px(5.0))
+        .rounded(px(radius::LG))
         .flex_row()
         .items_center()
         .justify_between()
@@ -37,7 +38,7 @@ pub fn disclosure_row(
         })
         .hover(move |s| s.bg(move || theme().muted))
         .active(|s| s.opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .on_press(move || on_press())
         .child(
@@ -46,10 +47,10 @@ pub fn disclosure_row(
                 .items_center()
                 .gap(px(5.0))
                 .child(icons::icon_svg(icon_markup, 11.5, ACCENT_GOLD_STRONG))
-                .child(text(title).text_size(px(11.0)).text_color(ACCENT_GOLD_STRONG))
+                .child(text(title).text_size(px(font::BODY)).text_color(ACCENT_GOLD_STRONG))
                 .child(
                     text(detail)
-                        .text_size(px(10.5))
+                        .text_size(px(font::CAPTION))
                         .text_color(move || theme().muted_foreground),
                 ),
         )
@@ -64,7 +65,7 @@ pub fn disclosure_row(
                     } else {
                         collapsed_label
                     })
-                    .text_size(px(10.5))
+                    .text_size(px(font::CAPTION))
                     .text_color(move || theme().muted_foreground),
                 )
                 .child(icons::dynamic_icon_svg(

@@ -6,6 +6,7 @@
 use nsh_base::{theme, toggle, toggle_group};
 use nsh_core::prelude::*;
 
+use super::tokens::{font, radius, size};
 use crate::icons;
 use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_GOLD_STRONG};
 
@@ -50,7 +51,7 @@ pub fn choice_chip(
         .justify_center()
         .px(px(6.0))
         .py(px(2.0))
-        .rounded(px(3.0))
+        .rounded(px(radius::SM))
         .bg(move || {
             if pressed() {
                 ACCENT_GOLD_BG
@@ -76,9 +77,9 @@ pub fn choice_chip(
             })
         })
         .active(|s| s.scale(0.96).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
-        .child(text(label).text_size(px(10.5)).text_color(move || {
+        .child(text(label).text_size(px(font::CAPTION)).text_color(move || {
             if pressed() {
                 ACCENT_GOLD_STRONG
             } else {
@@ -99,8 +100,8 @@ pub fn segment_toggle(
         .accessibility_label(label)
         .on_change(move |next: &bool| on_change(*next))
         .flex_1()
-        .h(px(24.0))
-        .rounded(px(5.0))
+        .h(px(size::CONTROL_MD))
+        .rounded(px(radius::LG))
         .flex_row()
         .items_center()
         .justify_center()
@@ -130,7 +131,7 @@ pub fn segment_toggle(
             })
         })
         .active(|s| s.scale(0.97).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .child(icons::icon_svg(icon_markup, 11.0, move || {
             if pressed() {
@@ -139,7 +140,7 @@ pub fn segment_toggle(
                 theme().muted_foreground
             }
         }))
-        .child(text(label).text_size(px(10.5)).text_color(move || {
+        .child(text(label).text_size(px(font::CAPTION)).text_color(move || {
             if pressed() {
                 ACCENT_GOLD_STRONG
             } else {
@@ -159,9 +160,9 @@ pub fn icon_choice(
         .pressed(pressed)
         .accessibility_label(label)
         .on_change(move |next: &bool| on_change(*next))
-        .w(px(24.0))
-        .h(px(24.0))
-        .rounded(px(4.0))
+        .w(px(size::CONTROL_MD))
+        .h(px(size::CONTROL_MD))
+        .rounded(px(radius::MD))
         .items_center()
         .justify_center()
         .bg(move || {
@@ -181,7 +182,7 @@ pub fn icon_choice(
         })
         .hover(move |s| s.border_color(move || icons::get_item_adaptive(icon_key)))
         .active(|s| s.scale(0.94).opacity(0.9))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .transition_colors()
         .child(icons::icon_svg(
             icons::get_icon_markup(icon_key),

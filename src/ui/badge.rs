@@ -3,6 +3,7 @@
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
+use super::tokens::{font, motion, radius};
 use crate::theme_mode::{ACCENT_DANGER_FG, ACCENT_GOLD_BG, ACCENT_GOLD_STRONG};
 
 /// 状态徽章的语气
@@ -27,17 +28,17 @@ pub fn status_badge(
     view()
         .px(px(6.0))
         .py(px(2.0))
-        .rounded(px(4.0))
+        .rounded(px(radius::MD))
         .bg(move || match tone.get() {
             BadgeTone::Accent => ACCENT_GOLD_BG,
             BadgeTone::Danger => ACCENT_DANGER_FG.opacity(0.12),
             BadgeTone::Muted => theme().muted,
         })
         .transition_colors()
-        .duration(move || if reduce_motion() { 0.0_f32 } else { 120.0_f32 })
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .child(
             text(label)
-                .text_size(px(10.5))
+                .text_size(px(font::CAPTION))
                 .text_color(move || match tone.get() {
                     BadgeTone::Accent => ACCENT_GOLD_STRONG,
                     BadgeTone::Danger => ACCENT_DANGER_FG,

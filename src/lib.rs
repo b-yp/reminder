@@ -21,7 +21,7 @@ use nsh_core::prelude::*;
 use nsh_core::element::{desktop, input, AdaptiveColor};
 use nsh_core::desktop::{WindowAttributes, WindowFrame, WindowFrameStyle, WindowLevel};
 use nsh_base::{
-    SliderValue, SwipeDirection, TimeOfDay, button, collapsible, slider, theme, time_field, toast,
+    SliderValue, SwipeDirection, TimeOfDay, collapsible, slider, theme, time_field, toast,
 };
 use chrono::Timelike;
 use hotkey::HotkeyStatus;
@@ -1837,7 +1837,7 @@ fn render_interval_fields(
                                             error_tip.set(None);
                                         })
                                         .w(px(38.0))
-                                        .h(px(19.0))
+                                        .h(px(20.0))
                                         .px(px(4.0))
                                         .rounded(px(3.0))
                                         .bg(move || theme().background)
@@ -2587,31 +2587,11 @@ fn render_hotkey_setting(
                     when(
                         move || supported && hotkey_enabled.get(),
                         move || {
-                            // 语义按钮：可 Tab 聚焦、空格 / 回车触发，带键盘焦点环
-                            button()
-                                .px(px(6.0))
-                                .h(px(18.0))
-                                .rounded(px(4.0))
-                                .bg(move || theme().secondary)
-                                .border_1()
-                                .border_color(move || theme().border)
-                                .items_center()
-                                .justify_center()
-                                .hover(|s| s.border_color(ACCENT_GOLD))
-                                .active(|s| s.opacity(0.5))
-                                .focus_visible(|s| {
-                                    s.outline(px(2.0)).outline_color(move || theme().ring)
-                                })
-                                .on_press(move || {
-                                    let next = hotkey::next_preset(&hotkey.get());
-                                    hotkey.set(next.to_string());
-                                    on_save();
-                                })
-                                .child(
-                                    text("换一组")
-                                        .text_size(px(10.0))
-                                        .text_color(move || theme().muted_foreground),
-                                )
+                            ui::text_button("换一组", false, move || {
+                                let next = hotkey::next_preset(&hotkey.get());
+                                hotkey.set(next.to_string());
+                                on_save();
+                            })
                         },
                     ),
                 ),

@@ -4,6 +4,7 @@
 use nsh_base::{button, menu, menu_item, theme};
 use nsh_core::prelude::*;
 
+use super::tokens::{font, radius, size};
 use crate::icons;
 
 /// 提醒行右侧的「⋯」菜单：延后 5 分钟、删除。
@@ -18,7 +19,7 @@ pub fn row_menu(
         .popup_style(|s| {
             s.min_w(px(132.0))
                 .p(px(3.0))
-                .rounded(px(6.0))
+                .rounded(px(radius::LG))
                 .border_1()
                 .border_color(move || theme().border)
                 .bg(move || theme().popover)
@@ -28,8 +29,8 @@ pub fn row_menu(
             button()
                 .accessibility_label("更多操作")
                 .w(px(22.0))
-                .h(px(24.0))
-                .rounded(px(5.0))
+                .h(px(size::CONTROL_MD))
+                .rounded(px(radius::LG))
                 .flex_row()
                 .items_center()
                 .justify_center()
@@ -38,7 +39,7 @@ pub fn row_menu(
                 .border_color(move || theme().border)
                 .hover(move |s| s.bg(move || theme().muted))
                 .active(|s| s.scale(0.96).opacity(0.9))
-                .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+                .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
                 .transition_colors()
                 .child(icons::icon_svg(icons::ICON_MORE, 12.0, move || {
                     theme().muted_foreground
@@ -62,13 +63,13 @@ fn item(
         .on_select(move || on_select())
         .px(px(8.0))
         .py(px(4.0))
-        .rounded(px(4.0))
+        .rounded(px(radius::MD))
         .flex_row()
         .items_center()
         .gap(px(4.0))
         .hover(move |s| s.bg(move || theme().muted))
         .active(move |s| s.bg(move || theme().muted))
-        .child(text(label).text_size(px(11.0)).text_color(move || {
+        .child(text(label).text_size(px(font::BODY)).text_color(move || {
             if destructive {
                 theme().destructive
             } else {

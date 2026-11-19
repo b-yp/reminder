@@ -3,6 +3,7 @@
 use nsh_base::{switch, theme};
 use nsh_core::prelude::*;
 
+use super::tokens::size;
 use crate::theme_mode::ACCENT_GOLD;
 
 /// 设置抽屉里的开关：34×20 的轨道 + 14 的滑块，开启时金黄高亮，
@@ -19,7 +20,7 @@ pub fn setting_switch(
         .checked(checked)
         .disabled(disabled)
         .accessibility_label(label)
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
         .on_change(move |next: &bool| on_change(*next))
         .track_style(|s| {
             s.w(px(34.0))
