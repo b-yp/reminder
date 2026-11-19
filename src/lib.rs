@@ -297,8 +297,41 @@ const UNDO_SECONDS: u64 = 5;
 #[derive(Clone, PartialEq)]
 struct PendingDelete {
     item: ReminderItem,
-    index: usize,
+    prev_id: Option<u64>,
+    next_id: Option<u64>,
     deadline: u64,
+}
+
+/// 将新提醒项插入到列表顶部，保证在主滚动区域内立即可见
+pub(crate) fn insert_item_at_top(list: &mut Vec<ReminderItem>, item: ReminderItem) {
+    list.insert(0, item);
+}
+
+/// 撤销恢复被删提醒项：
+/// 优先根据删除时前一项的 ID (`prev_id`) 找回原相对位置；
+/// 若删除时处于首位（`prev_id` 为 None），则插在原后一项 (`next_id`) 之前；
+/// 若均无法匹配则兜底插入到列表顶部。
+pub(crate) fn undo_restore_item(
+    list: &mut Vec<ReminderItem>,
+    item: ReminderItem,
+    prev_id: Option<u64>,
+    next_id: Option<u64>,
+) {
+    let at = match prev_id {
+        Some(pid) => {
+            if let Some(pos) = list.iter().position(|x| x.id == pid) {
+                pos + 1
+            } else {
+                next_id
+                    .and_then(|nid| list.iter().position(|x| x.id == nid))
+                    .unwrap_or(0)
+            }
+        }
+        None => next_id
+            .and_then(|nid| list.iter().position(|x| x.id == nid))
+            .unwrap_or(0),
+    };
+    list.insert(at.min(list.len()), item);
 }
 
 /// 图标主题第二排：专注与日程
@@ -508,26 +541,29 @@ pub fn App() -> impl IntoElement {
         let mut removed = None;
         items.update(|list| {
             if let Some(pos) = list.iter().position(|x| x.id == id) {
-                removed = Some((pos, list.remove(pos)));
+                let prev_id = if pos > 0 { Some(list[pos - 1].id) } else { None };
+                let next_id = if pos + 1 < list.len() { Some(list[pos + 1].id) } else { None };
+                let item = list.remove(pos);
+                removed = Some((prev_id, next_id, item));
             }
         });
-        if let Some((index, item)) = removed {
+        if let Some((prev_id, next_id, item)) = removed {
             is_toast_hovered.set(false);
             pending_delete.set(Some(PendingDelete {
                 item,
-                index,
+                prev_id,
+                next_id,
                 deadline: localtime::unix_now() + UNDO_SECONDS,
             }));
             save_app_state();
         }
     };
 
-    // 撤销：按原位置插回并重新落盘
+    // 撤销：按原相对位置插回并重新落盘
     let undo_delete = move || {
         if let Some(pending) = pending_delete.get() {
             items.update(|list| {
-                let at = pending.index.min(list.len());
-                list.insert(at, pending.item.clone());
+                undo_restore_item(list, pending.item.clone(), pending.prev_id, pending.next_id);
             });
             is_toast_hovered.set(false);
             pending_delete.set(None);
@@ -1683,13 +1719,14 @@ fn render_preset_card(
         move || {
             if !is_running.get() {
                 let now = localtime::now();
+                let item = match preset.kind {
+                    PresetKind::Interval(mins) => ReminderItem::new(name, icon, mins * 60),
+                    PresetKind::Daily(hour, minute) => {
+                        ReminderItem::new_daily(name, icon, hour, minute, &now)
+                    }
+                };
                 items.update(|list| {
-                    list.push(match preset.kind {
-                        PresetKind::Interval(mins) => ReminderItem::new(name, icon, mins * 60),
-                        PresetKind::Daily(hour, minute) => {
-                            ReminderItem::new_daily(name, icon, hour, minute, &now)
-                        }
-                    });
+                    insert_item_at_top(list, item);
                 });
                 on_save();
             }
@@ -2411,23 +2448,26 @@ fn render_drawer(
                                                     }
                                                     let now = localtime::now();
                                                     let icon = custom_icon.get();
-                                                    items.update(|list| {
-                                                        list.push(match schedule {
-                                                            Schedule::Interval => ReminderItem::new(
+                                                    let item = match schedule {
+                                                        Schedule::Interval => {
+                                                            ReminderItem::new(
                                                                 &name,
                                                                 icon,
                                                                 interval_mins * 60,
-                                                            ),
-                                                            Schedule::Daily { hour, minute } => {
-                                                                ReminderItem::new_daily(
-                                                                    &name,
-                                                                    icon,
-                                                                    u32::from(hour),
-                                                                    u32::from(minute),
-                                                                    &now,
-                                                                )
-                                                            }
-                                                        });
+                                                            )
+                                                        }
+                                                        Schedule::Daily { hour, minute } => {
+                                                            ReminderItem::new_daily(
+                                                                &name,
+                                                                icon,
+                                                                u32::from(hour),
+                                                                u32::from(minute),
+                                                                &now,
+                                                            )
+                                                        }
+                                                    };
+                                                    items.update(|list| {
+                                                        insert_item_at_top(list, item);
                                                     });
                                                     on_save();
                                                     custom_name.set(String::new());
@@ -2753,6 +2793,89 @@ mod tests {
     }
 
     #[test]
+    fn test_insert_item_at_top() {
+        let mut list = vec![
+            ReminderItem::new("原有任务1", "droplet", 1800),
+            ReminderItem::new("原有任务2", "walk", 2700),
+        ];
+
+        let new_preset = ReminderItem::new("新预设", "moon", 3600);
+        insert_item_at_top(&mut list, new_preset);
+        assert_eq!(list[0].name, "新预设");
+        assert_eq!(list.len(), 3);
+
+        let new_custom = ReminderItem::new("自定义新提醒", "coffee", 1200);
+        insert_item_at_top(&mut list, new_custom);
+        assert_eq!(list[0].name, "自定义新提醒");
+        assert_eq!(list[1].name, "新预设");
+        assert_eq!(list.len(), 4);
+    }
+
+    #[test]
+    fn test_undo_restores_correct_position_after_new_item_inserted_at_top() {
+        let mut list = vec![
+            ReminderItem::new("任务A", "droplet", 1800),
+            ReminderItem::new("任务B", "walk", 2700),
+            ReminderItem::new("任务C", "eye", 1200),
+        ];
+        let id_a = list[0].id;
+        let id_b = list[1].id;
+        let id_c = list[2].id;
+
+        // 1. 删除第 2 项（任务B）
+        let pos = list.iter().position(|x| x.id == id_b).unwrap();
+        assert_eq!(pos, 1);
+        let prev_id = if pos > 0 { Some(list[pos - 1].id) } else { None };
+        let next_id = if pos + 1 < list.len() { Some(list[pos + 1].id) } else { None };
+        assert_eq!(prev_id, Some(id_a));
+        assert_eq!(next_id, Some(id_c));
+        let item_b = list.remove(pos);
+
+        // 2. 5秒内新增提醒「新任务N」，插入到顶部
+        let item_n = ReminderItem::new("新任务N", "coffee", 600);
+        insert_item_at_top(&mut list, item_n);
+        assert_eq!(list[0].name, "新任务N");
+        assert_eq!(list[1].name, "任务A");
+        assert_eq!(list[2].name, "任务C");
+
+        // 3. 点击「撤销」，验证任务B被恢复到第3位（索引2，排在任务A之后、任务C之前）
+        undo_restore_item(&mut list, item_b, prev_id, next_id);
+        assert_eq!(list.len(), 4);
+        assert_eq!(list[0].name, "新任务N");
+        assert_eq!(list[1].name, "任务A");
+        assert_eq!(list[2].name, "任务B");
+        assert_eq!(list[3].name, "任务C");
+    }
+
+    #[test]
+    fn test_undo_first_item_after_new_item_inserted_at_top() {
+        let mut list = vec![
+            ReminderItem::new("任务A", "droplet", 1800),
+            ReminderItem::new("任务B", "walk", 2700),
+        ];
+        let id_a = list[0].id;
+        let id_b = list[1].id;
+
+        // 删除第 1 项（任务A）
+        let pos = list.iter().position(|x| x.id == id_a).unwrap();
+        let prev_id = if pos > 0 { Some(list[pos - 1].id) } else { None };
+        let next_id = if pos + 1 < list.len() { Some(list[pos + 1].id) } else { None };
+        assert_eq!(prev_id, None);
+        assert_eq!(next_id, Some(id_b));
+        let item_a = list.remove(pos);
+
+        // 新增提醒插入到顶部
+        let item_n = ReminderItem::new("新任务N", "coffee", 600);
+        insert_item_at_top(&mut list, item_n);
+
+        // 撤销删除任务A，由于 prev_id=None 且 next_id=任务B，任务A恢复在任务B之前、新任务N之后
+        undo_restore_item(&mut list, item_a, prev_id, next_id);
+        assert_eq!(list[0].name, "新任务N");
+        assert_eq!(list[1].name, "任务A");
+        assert_eq!(list[2].name, "任务B");
+    }
+
+    #[test]
     fn test_full_persistence_integration() {
         let temp_dir = std::env::temp_dir().join(format!("reminder_integ_{}", std::process::id()));
         let _ = std::fs::create_dir_all(&temp_dir);
@@ -2872,5 +2995,46 @@ mod tests {
                 idx
             );
         }
+    }
+
+    #[component]
+    fn PresetAddBehaviorHost() -> impl IntoElement {
+        let items = signal(vec![ReminderItem::new("旧任务", "droplet", 1800)]);
+        view()
+            .w(px(320.0))
+            .h(px(500.0))
+            .flex_col()
+            .child(render_preset_grid(INTERVAL_PRESETS, items, || {}))
+            .child(render_items(items, || {}, || {}, |_| {}))
+    }
+
+    #[test]
+    fn test_preset_add_inserts_at_top_headless() {
+        use nsh_engine::{EngineConfig, Points, Root, Size};
+        use nsh_testing::Headless;
+
+        let config = EngineConfig {
+            viewport: Size::new(Points(320.0), Points(500.0)),
+            ..EngineConfig::new(Root::of::<PresetAddBehaviorHost>())
+        };
+        let mut app = Headless::start(config).expect("Headless started");
+        app.wait_for("旧任务").unwrap();
+        assert!(app.screen().shows("旧任务"));
+
+        // 点击预设卡片「番茄专注」
+        app.press("番茄专注").unwrap();
+        app.wait_for("25m").unwrap();
+
+        // 验证生产代码实际将新行渲染在「旧任务」之前
+        let texts = app.screen().texts();
+        let new_item_idx = texts
+            .iter()
+            .rposition(|&t| t == "番茄专注")
+            .expect("番茄专注已渲染到提醒列表中");
+        let old_item_idx = texts.iter().position(|&t| t == "旧任务").expect("旧任务存在");
+        assert!(
+            new_item_idx < old_item_idx,
+            "新增提醒 (番茄专注 index={new_item_idx}) 必须渲染在旧任务 (index={old_item_idx}) 之前"
+        );
     }
 }
