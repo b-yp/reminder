@@ -1,7 +1,7 @@
 //! 行内「更多」菜单：低频动作与破坏性动作都收进来，底座是 `nsh/base` 的
 //! `menu`（定位、Escape / 点外关闭、键盘与菜单项角色都由它给）。
 
-use nsh_base::{menu, menu_item, theme};
+use nsh_base::{button, menu, menu_item, theme};
 use nsh_core::prelude::*;
 
 use crate::icons;
@@ -25,8 +25,8 @@ pub fn row_menu(
                 .shadow_lg()
         })
         .trigger(
-            view()
-                .label("更多操作")
+            button()
+                .accessibility_label("更多操作")
                 .w(px(22.0))
                 .h(px(24.0))
                 .rounded(px(5.0))
@@ -75,4 +75,57 @@ fn item(
                 theme().popover_foreground
             }
         }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nsh_core::platform::{Idiom, Os};
+    use nsh_engine::{EngineConfig, Points, Root, Size};
+    use nsh_testing::Headless;
+
+    #[component]
+    fn MenuHost() -> impl IntoElement {
+        view()
+            .w(px(320.0))
+            .h(px(200.0))
+            .child(row_menu(|| false, || {}, || {}))
+    }
+
+    #[test]
+    fn test_menu_keyboard_tab_open_escape_focus_restore() {
+        let mut config = EngineConfig {
+            viewport: Size::new(Points(320.0), Points(200.0)),
+            ..EngineConfig::new(Root::of::<MenuHost>())
+        };
+        config.environment.os = Os::MacOs;
+        config.environment.idiom = Idiom::Desktop;
+        let mut app = Headless::start(config).expect("Headless started");
+        app.wait_for("更多操作").unwrap();
+
+        // 1. Tab 聚焦到 ⋯ 触发器按钮
+        app.press_key("tab").unwrap();
+
+        // 2. Enter 键展开菜单
+        app.press_key("enter").unwrap();
+        app.wait_for("延后 5 分钟").unwrap();
+        assert!(app.screen().shows("延后 5 分钟"));
+        assert!(app.screen().shows("删除提醒"));
+
+        // 3. Escape 键关闭菜单
+        app.press_key("escape").unwrap();
+        app.wait_for_gone("延后 5 分钟", std::time::Duration::from_secs(2))
+            .unwrap();
+        assert!(!app.screen().shows("延后 5 分钟"));
+
+        // 4. 验证焦点已回到 ⋯ 触发器：再次按 Enter 能重新展开菜单
+        app.press_key("enter").unwrap();
+        app.wait_for("延后 5 分钟").unwrap();
+        assert!(app.screen().shows("延后 5 分钟"));
+
+        // 5. 再次 Escape 恢复关闭状态
+        app.press_key("escape").unwrap();
+        app.wait_for_gone("延后 5 分钟", std::time::Duration::from_secs(2))
+            .unwrap();
+    }
 }
