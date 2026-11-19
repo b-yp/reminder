@@ -172,7 +172,7 @@ pub fn micro_button(
         .on_press(move || on_press())
         .child(
             text(label)
-                .text_size(px(10.0))
+                .text_size(px(10.5))
                 .text_color(move || theme().muted_foreground),
         )
 }

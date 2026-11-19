@@ -74,7 +74,7 @@ pub fn preset_card(
         .child(
             view()
                 .px(px(4.0))
-                .py(px(1.0))
+                .py(px(1.5))
                 .rounded(px(3.0))
                 .bg(move || {
                     if added() {
@@ -83,7 +83,7 @@ pub fn preset_card(
                         theme().muted
                     }
                 })
-                .child(text(badge).text_size(px(9.5)).text_color(move || {
+                .child(text(badge).text_size(px(10.5)).text_color(move || {
                     if added() {
                         ACCENT_DONE_FG
                     } else {

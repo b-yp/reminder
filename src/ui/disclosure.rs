@@ -5,7 +5,7 @@ use nsh_base::{button, theme};
 use nsh_core::prelude::*;
 
 use crate::icons;
-use crate::theme_mode::ACCENT_GOLD;
+use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_STRONG};
 
 /// 折叠区标题行。`detail` 是标题后的补充（如「(6项预设)」），可为空串。
 pub fn disclosure_row(
@@ -45,11 +45,11 @@ pub fn disclosure_row(
                 .flex_row()
                 .items_center()
                 .gap(px(5.0))
-                .child(icons::icon_svg(icon_markup, 11.5, ACCENT_GOLD))
-                .child(text(title).text_size(px(11.0)).text_color(ACCENT_GOLD))
+                .child(icons::icon_svg(icon_markup, 11.5, ACCENT_GOLD_STRONG))
+                .child(text(title).text_size(px(11.0)).text_color(ACCENT_GOLD_STRONG))
                 .child(
                     text(detail)
-                        .text_size(px(10.0))
+                        .text_size(px(10.5))
                         .text_color(move || theme().muted_foreground),
                 ),
         )

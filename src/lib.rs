@@ -26,7 +26,10 @@ use nsh_base::{
 use chrono::Timelike;
 use hotkey::HotkeyStatus;
 use model::{ReminderItem, Schedule};
-use theme_mode::{ThemeMode, ACCENT_GOLD, ACCENT_GOLD_BG, OVERDUE_WASH};
+use theme_mode::{
+    ThemeMode, ACCENT_DANGER_FG, ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_GOLD_STRONG, OVERDUE_FG,
+    OVERDUE_WASH,
+};
 
 const LOGO: ImageAsset = asset!("logo.png");
 
@@ -961,7 +964,7 @@ fn render_mini_capsule(
                                                 })
                                             })
                                             .flex_shrink_0()
-                                            .text_size(px(9.5))
+                                            .text_size(px(10.5))
                                             .text_color(move || theme().muted_foreground)
                                         },
                                     ),
@@ -992,9 +995,9 @@ fn render_mini_capsule(
                                         if is_all_paused.get() {
                                             theme().muted_foreground
                                         } else if active_item_info.with(|info| info.as_ref().map_or(false, |(_, it, _)| it.is_expired())) {
-                                            theme().destructive
+                                            OVERDUE_FG
                                         } else {
-                                            ACCENT_GOLD
+                                            ACCENT_GOLD_STRONG
                                         }
                                     }),
                                 ),
@@ -1121,7 +1124,7 @@ fn render_header(
                             },
                             when(
                                 move || is_all_paused.get(),
-                                move || icons::icon_svg(icons::ICON_PLAY, 11.0, ACCENT_GOLD),
+                                move || icons::icon_svg(icons::ICON_PLAY, 11.0, ACCENT_GOLD_STRONG),
                             )
                             .otherwise(move || icons::icon_svg(icons::ICON_PAUSE, 11.0, move || theme().muted_foreground)),
                         ))
@@ -1147,7 +1150,7 @@ fn render_header(
                                 12.0,
                                 move || {
                                     if show_settings.get() {
-                                        ACCENT_GOLD
+                                        ACCENT_GOLD_STRONG
                                     } else {
                                         theme().muted_foreground
                                     }
@@ -1235,7 +1238,7 @@ fn render_empty_state(on_add: impl Fn() + Copy + 'static) -> impl IntoElement {
                 .bg(ACCENT_GOLD_BG)
                 .items_center()
                 .justify_center()
-                .child(icons::icon_svg(icons::ICON_BELL, 18.0, ACCENT_GOLD)),
+                .child(icons::icon_svg(icons::ICON_BELL, 18.0, ACCENT_GOLD_STRONG)),
         )
         .child(
             view()
@@ -1388,15 +1391,15 @@ fn render_item_row(
                                 .child(
                                     when(
                                         move || item_sig.get().is_expired(),
-                                        move || icons::icon_svg(icons::ICON_ALERT, 11.0, move || theme().destructive),
+                                        move || icons::icon_svg(icons::ICON_ALERT, 11.5, OVERDUE_FG),
                                     ),
                                 )
                                 .child(
                                     text(move || item_sig.get().format_remaining())
-                                        .text_size(px(11.5))
+                                        .text_size(px(12.0))
                                         .text_color(move || {
                                             if item_sig.get().is_expired() {
-                                                theme().destructive
+                                                OVERDUE_FG
                                             } else {
                                                 theme().muted_foreground
                                             }
@@ -1437,7 +1440,7 @@ fn render_item_row(
                                 });
                                 on_save();
                             },
-                            icons::icon_svg(icons::ICON_CHECK, 12.0, ACCENT_GOLD),
+                            icons::icon_svg(icons::ICON_CHECK, 12.0, ACCENT_GOLD_STRONG),
                         ))
                         .tooltip(ui::tooltip_bubble("完成打卡")),
                 )
@@ -1633,7 +1636,7 @@ fn render_footer(
                             ))
                             .child(
                                 text(move || hotkey::label(&hotkey.get()))
-                                    .text_size(px(9.5))
+                                    .text_size(px(10.5))
                                     .text_color(move || theme().muted_foreground),
                             )
                     }),
@@ -1644,11 +1647,11 @@ fn render_footer(
                             .flex_row()
                             .items_center()
                             .gap(px(3.0))
-                            .child(icons::icon_svg(icons::ICON_OPACITY, 10.0, ACCENT_GOLD))
+                            .child(icons::icon_svg(icons::ICON_OPACITY, 10.5, ACCENT_GOLD_STRONG))
                             .child(
                                 text(move || format!("{:.0}%", opacity.get() * 100.0))
-                                    .text_size(px(9.5))
-                                    .text_color(ACCENT_GOLD),
+                                    .text_size(px(10.5))
+                                    .text_color(ACCENT_GOLD_STRONG),
                             )
                     }),
                 ),
@@ -1722,12 +1725,12 @@ fn preset_section_label(title: &'static str, hint: &'static str) -> impl IntoEle
         .justify_between()
         .child(
             text(title)
-                .text_size(px(10.0))
+                .text_size(px(11.0))
                 .text_color(move || theme().muted_foreground),
         )
         .child(
             text(hint)
-                .text_size(px(9.5))
+                .text_size(px(10.5))
                 .text_color(move || theme().muted_foreground),
         )
 }
@@ -1767,7 +1770,7 @@ fn render_interval_fields(
                 .justify_between()
                 .child(
                     text("循环周期")
-                        .text_size(px(10.0))
+                        .text_size(px(11.0))
                         .text_color(move || theme().muted_foreground),
                 )
                 .child(
@@ -1804,7 +1807,7 @@ fn render_interval_fields(
                                         .border_1()
                                         .border_color(ACCENT_GOLD)
                                         .text_size(px(11.0))
-                                        .text_color(ACCENT_GOLD),
+                                        .text_color(ACCENT_GOLD_STRONG),
                                 )
                                 .child(ui::step_button("增加 1 分钟", "+", move || {
                                     let cur = custom_mins_str.get().parse::<u32>().unwrap_or(30);
@@ -1823,7 +1826,7 @@ fn render_interval_fields(
                 .gap(px(3.0))
                 .child(
                     text("快捷填入:")
-                        .text_size(px(9.5))
+                        .text_size(px(10.5))
                         .text_color(move || theme().muted_foreground),
                 )
                 .child(ui::choice_group(MINUTE_CHIPS.iter().map(|&(label, mins)| {
@@ -1858,7 +1861,7 @@ fn render_daily_fields(
                 .justify_between()
                 .child(
                     text("每天提醒时间")
-                        .text_size(px(10.0))
+                        .text_size(px(11.0))
                         .text_color(move || theme().muted_foreground),
                 )
                 .child(
@@ -1881,10 +1884,10 @@ fn render_daily_fields(
                         .border_1()
                         .border_color(ACCENT_GOLD)
                         .segment_style(|s| {
-                            s.text_size(px(11.0)).text_color(ACCENT_GOLD)
+                            s.text_size(px(11.0)).text_color(ACCENT_GOLD_STRONG)
                         })
                         .separator_style(|s| {
-                            s.text_size(px(11.0)).text_color(ACCENT_GOLD)
+                            s.text_size(px(11.0)).text_color(ACCENT_GOLD_STRONG)
                         }),
                     ),
                 ),
@@ -1898,7 +1901,7 @@ fn render_daily_fields(
                 .gap(px(3.0))
                 .child(
                     text("常用时刻:")
-                        .text_size(px(9.5))
+                        .text_size(px(10.5))
                         .text_color(move || theme().muted_foreground),
                 )
                 .child(ui::choice_group(TIME_CHIPS.iter().map(|&(label, hour, minute)| {
@@ -1991,7 +1994,7 @@ fn render_drawer(
                                                 ThemeMode::System => icons::ICON_LAPTOP,
                                             },
                                             12.0,
-                                            ACCENT_GOLD,
+                                            ACCENT_GOLD_STRONG,
                                         ))
                                         .child(
                                             text("外观主题")
@@ -2002,13 +2005,13 @@ fn render_drawer(
                                 .child(
                                     view()
                                         .px(px(6.0))
-                                        .py(px(1.5))
+                                        .py(px(2.0))
                                         .rounded(px(4.0))
                                         .bg(ACCENT_GOLD_BG)
                                         .child(
                                             text(move || theme_mode.get().label())
                                                 .text_size(px(10.5))
-                                                .text_color(ACCENT_GOLD),
+                                                .text_color(ACCENT_GOLD_STRONG),
                                         ),
                                 ),
                         )
@@ -2056,7 +2059,7 @@ fn render_drawer(
                                         .child(icons::icon_svg(
                                             icons::ICON_OPACITY,
                                             12.0,
-                                            ACCENT_GOLD,
+                                            ACCENT_GOLD_STRONG,
                                         ))
                                         .child(
                                             text("窗口不透明度")
@@ -2067,13 +2070,13 @@ fn render_drawer(
                                 .child(
                                     view()
                                         .px(px(6.0))
-                                        .py(px(1.5))
+                                        .py(px(2.0))
                                         .rounded(px(4.0))
                                         .bg(ACCENT_GOLD_BG)
                                         .child(
                                             text(move || format!("{:.0}%", opacity.get() * 100.0))
                                                 .text_size(px(11.0))
-                                                .text_color(ACCENT_GOLD),
+                                                .text_color(ACCENT_GOLD_STRONG),
                                         ),
                                 ),
                         )
@@ -2222,13 +2225,13 @@ fn render_drawer(
                                                 .justify_between()
                                                 .child(
                                                     text("提醒事项名称")
-                                                        .text_size(px(10.0))
+                                                        .text_size(px(11.0))
                                                         .text_color(move || theme().muted_foreground),
                                                 )
                                                 .child(
                                                     text(move || error_tip.get().unwrap_or_default())
-                                                        .text_size(px(10.0))
-                                                        .text_color(move || theme().destructive),
+                                                        .text_size(px(10.5))
+                                                        .text_color(move || ACCENT_DANGER_FG),
                                                 ),
                                         )
                                         .child(
@@ -2263,7 +2266,7 @@ fn render_drawer(
                                                 .justify_between()
                                                 .child(
                                                     text("提醒方式")
-                                                        .text_size(px(10.0))
+                                                        .text_size(px(11.0))
                                                         .text_color(move || theme().muted_foreground),
                                                 )
                                                 .child(
@@ -2308,7 +2311,7 @@ fn render_drawer(
                                         .gap(px(3.0))
                                         .child(
                                             text("图标主题")
-                                                .text_size(px(10.0))
+                                                .text_size(px(11.0))
                                                 .text_color(move || theme().muted_foreground),
                                         )
                                         // 16 个图标 = 一个 toggle 组，两排铺开
@@ -2464,7 +2467,7 @@ fn render_hotkey_setting(
                         .flex_row()
                         .items_center()
                         .gap(px(6.0))
-                        .child(icons::icon_svg(icons::ICON_KEYBOARD, 12.0, ACCENT_GOLD))
+                        .child(icons::icon_svg(icons::ICON_KEYBOARD, 12.0, ACCENT_GOLD_STRONG))
                         .child(
                             text("全局热键")
                                 .text_size(px(11.5))
@@ -2507,7 +2510,7 @@ fn render_hotkey_setting(
                                     .border_color(move || theme().border)
                                     .child(
                                         text(move || cap.get())
-                                            .text_size(px(9.5))
+                                            .text_size(px(10.0))
                                             .text_color(move || theme().muted_foreground),
                                     )
                             },
@@ -2531,10 +2534,10 @@ fn render_hotkey_setting(
                 .gap(px(6.0))
                 .child(
                     text(move || hotkey_status.get().hint())
-                        .text_size(px(9.5))
+                        .text_size(px(10.5))
                         .text_color(move || {
                             if hotkey_status.get().is_error() {
-                                theme().destructive
+                                ACCENT_DANGER_FG
                             } else {
                                 theme().muted_foreground
                             }
@@ -2566,7 +2569,7 @@ fn render_hotkey_setting(
                                 })
                                 .child(
                                     text("换一组")
-                                        .text_size(px(9.5))
+                                        .text_size(px(10.0))
                                         .text_color(move || theme().muted_foreground),
                                 )
                         },
@@ -2606,7 +2609,7 @@ fn render_autostart_setting(
                         .flex_row()
                         .items_center()
                         .gap(px(6.0))
-                        .child(icons::icon_svg(icons::ICON_POWER, 12.0, ACCENT_GOLD))
+                        .child(icons::icon_svg(icons::ICON_POWER, 12.0, ACCENT_GOLD_STRONG))
                         .child(
                             text("开机自启")
                                 .text_size(px(11.5))
@@ -2641,10 +2644,10 @@ fn render_autostart_setting(
                     text(move || {
                         autostart::hint(current_state(), autostart_error.get().as_deref())
                     })
-                    .text_size(px(9.5))
+                    .text_size(px(10.5))
                     .text_color(move || {
                         if current_state().is_error() {
-                            theme().destructive
+                            ACCENT_DANGER_FG
                         } else {
                             theme().muted_foreground
                         }

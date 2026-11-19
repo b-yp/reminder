@@ -7,7 +7,7 @@ use nsh_base::{theme, toggle, toggle_group};
 use nsh_core::prelude::*;
 
 use crate::icons;
-use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_BG};
+use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_GOLD_STRONG};
 
 /// 一组互斥或独立的选择项（工具栏语义）。整组只占一个 Tab 停靠点。
 pub fn choice_group<I>(items: I) -> impl IntoElement
@@ -48,8 +48,8 @@ pub fn choice_chip(
         .flex_row()
         .items_center()
         .justify_center()
-        .px(px(5.0))
-        .py(px(1.5))
+        .px(px(6.0))
+        .py(px(2.0))
         .rounded(px(3.0))
         .bg(move || {
             if pressed() {
@@ -78,9 +78,9 @@ pub fn choice_chip(
         .active(|s| s.scale(0.96).opacity(0.9))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
         .transition_colors()
-        .child(text(label).text_size(px(9.5)).text_color(move || {
+        .child(text(label).text_size(px(10.5)).text_color(move || {
             if pressed() {
-                ACCENT_GOLD
+                ACCENT_GOLD_STRONG
             } else {
                 theme().muted_foreground
             }
@@ -134,14 +134,14 @@ pub fn segment_toggle(
         .transition_colors()
         .child(icons::icon_svg(icon_markup, 11.0, move || {
             if pressed() {
-                ACCENT_GOLD
+                ACCENT_GOLD_STRONG
             } else {
                 theme().muted_foreground
             }
         }))
         .child(text(label).text_size(px(10.5)).text_color(move || {
             if pressed() {
-                ACCENT_GOLD
+                ACCENT_GOLD_STRONG
             } else {
                 theme().muted_foreground
             }
