@@ -100,7 +100,11 @@ jobs:
           curl -fsSL "$url" -o /tmp/nsh.tar.gz
           if curl -fsSL "$url.sha256" -o /tmp/nsh.sha256 2>/dev/null; then
             expected=$(grep -oE '[0-9a-f]{64}' /tmp/nsh.sha256 | head -n1 || true)
-            actual=$(sha256sum /tmp/nsh.tar.gz | cut -d' ' -f1)
+            if command -v sha256sum > /dev/null 2>&1; then
+              actual=$(sha256sum /tmp/nsh.tar.gz | cut -d' ' -f1)
+            else
+              actual=$(shasum -a 256 /tmp/nsh.tar.gz | cut -d' ' -f1)
+            fi
             if [ -n "$expected" ] && [ "$expected" != "$actual" ]; then
               echo "::error::nsh archive checksum mismatch"
               exit 1
@@ -108,7 +112,7 @@ jobs:
           else
             echo "::warning::nsh $NSH_VERSION publishes no .sha256 asset; skipping verification"
           fi
-          tar -xzf /tmp/nsh.tar.gz -C "$HOME/.nsh"
+          tar -xzf /tmp/nsh.tar.gz --strip-components=1 -C "$HOME/.nsh"
           echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
 
       - name: Install NSH CLI (Windows)
@@ -129,8 +133,13 @@ jobs:
             if ($_.Exception.Message -like '*checksum mismatch*') { throw }
             Write-Warning "nsh $env:NSH_VERSION publishes no .sha256 asset; skipping verification"
           }
-          Expand-Archive -Path nsh.zip -DestinationPath "$HOME/.nsh"
-          "$HOME/.nsh/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $work = Join-Path ([IO.Path]::GetTempPath()) ("nsh-" + [IO.Path]::GetRandomFileName())
+          Expand-Archive -Path nsh.zip -DestinationPath $work
+          $dest = Join-Path $HOME '.nsh'
+          if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+          Move-Item -Path (Join-Path $work 'nsh') -Destination $dest
+          Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+          (Join-Path $dest 'bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install Inno Setup (Windows)
         if: runner.os == 'Windows'

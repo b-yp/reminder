@@ -77,8 +77,9 @@ jobs:
           else
             echo "::warning::nsh $NSH_VERSION publishes no .sha256 asset; skipping verification"
           fi
-          tar -xzf /tmp/nsh.tar.gz -C "$HOME/.nsh"
+          tar -xzf /tmp/nsh.tar.gz --strip-components=1 -C "$HOME/.nsh"
           echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+          "$HOME/.nsh/bin/nsh" --version
 
       - name: NSH Test
         run: xvfb-run -a nsh test
