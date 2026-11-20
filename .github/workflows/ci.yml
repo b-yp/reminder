@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, master]
+  pull_request:
+    branches: [dev, master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NSH_VERSION: 0.6.0
+
+jobs:
+  # macOS / Windows 各做一次类型检查：本仓库大量使用 #[cfg(target_os)]，
+  # 只在 ubuntu 上编译会让这两个平台的编译错误拖到发版时才暴露。
+  # ubuntu 不在这里重复跑，下面的 test job 会完整编译并跑测试。
+  check:
+    name: Check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-ci-${{ matrix.os }}
+
+      - name: Cargo Check
+        run: cargo check --all-targets --locked
+
+  # nsh test 会跑 cargo test，再额外跑 App.test.tsx 的 5 个无头 UI 测试；
+  # 只用 cargo test 会漏掉后者。
+  test:
+    name: Test (cargo + App.test.tsx)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install GTK 4 and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev build-essential pkg-config xvfb
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-ci-test
+
+      - name: Install NSH CLI
+        run: |
+          set -euo pipefail
+          url="https://github.com/longbridge/nsh/releases/download/v${NSH_VERSION}/nsh-linux-x86_64.tar.gz"
+          mkdir -p "$HOME/.nsh"
+          curl -fsSL "$url" -o /tmp/nsh.tar.gz
+          if curl -fsSL "$url.sha256" -o /tmp/nsh.sha256 2>/dev/null; then
+            expected=$(grep -oE '[0-9a-f]{64}' /tmp/nsh.sha256 | head -n1 || true)
+            actual=$(sha256sum /tmp/nsh.tar.gz | cut -d' ' -f1)
+            if [ -n "$expected" ] && [ "$expected" != "$actual" ]; then
+              echo "::error::nsh archive checksum mismatch"
+              exit 1
+            fi
+          else
+            echo "::warning::nsh $NSH_VERSION publishes no .sha256 asset; skipping verification"
+          fi
+          tar -xzf /tmp/nsh.tar.gz -C "$HOME/.nsh"
+          echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+
+      - name: NSH Test
+        run: xvfb-run -a nsh test

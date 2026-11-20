@@ -1,0 +1,284 @@
+name: Release and Package
+
+# 唯一的打包入口：要么由 release-please 在版本 PR 合并后 dispatch，
+# 要么有人手动推了一个 v* tag。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要构建并发布的 tag（例如 v0.2.0）'
+        required: true
+      sha:
+        description: 'tag 指向的提交（留空则用触发这次运行的提交）'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+# 串行化：同一时间只允许一个打包在跑，避免抢同一个 tag / release。
+concurrency:
+  group: release-and-package
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  NSH_VERSION: 0.6.0
+
+jobs:
+  prepare:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      version: ${{ steps.resolve.outputs.version }}
+      sha: ${{ steps.resolve.outputs.sha }}
+    steps:
+      - name: Resolve tag
+        id: resolve
+        shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_SHA: ${{ inputs.sha }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$ ]]; then
+            echo "::error::'$tag' 不是 vMAJOR.MINOR.PATCH 形式的 tag"
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "sha=${INPUT_SHA:-${GITHUB_SHA}}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: prepare
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            asset: nsh-windows-x86_64.zip
+          - name: macos
+            os: macos-latest
+            asset: nsh-macos-arm64.tar.gz
+          - name: linux
+            os: ubuntu-latest
+            asset: nsh-linux-x86_64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # 用 sha 而不是 tag：即使 release-please 的 draft release 还没建出 ref 也能构建
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          prefix-key: v1-release-${{ matrix.name }}
+
+      - name: Install GTK 4
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev build-essential pkg-config
+
+      - name: Install NSH CLI (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          url="https://github.com/longbridge/nsh/releases/download/v${NSH_VERSION}/${{ matrix.asset }}"
+          mkdir -p "$HOME/.nsh"
+          curl -fsSL "$url" -o /tmp/nsh.tar.gz
+          if curl -fsSL "$url.sha256" -o /tmp/nsh.sha256 2>/dev/null; then
+            expected=$(grep -oE '[0-9a-f]{64}' /tmp/nsh.sha256 | head -n1 || true)
+            actual=$(sha256sum /tmp/nsh.tar.gz | cut -d' ' -f1)
+            if [ -n "$expected" ] && [ "$expected" != "$actual" ]; then
+              echo "::error::nsh archive checksum mismatch"
+              exit 1
+            fi
+          else
+            echo "::warning::nsh $NSH_VERSION publishes no .sha256 asset; skipping verification"
+          fi
+          tar -xzf /tmp/nsh.tar.gz -C "$HOME/.nsh"
+          echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+
+      - name: Install NSH CLI (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $url = "https://github.com/longbridge/nsh/releases/download/v$env:NSH_VERSION/${{ matrix.asset }}"
+          Invoke-WebRequest -Uri $url -OutFile nsh.zip
+          $actual = (Get-FileHash nsh.zip -Algorithm SHA256).Hash.ToLower()
+          try {
+            $text = (Invoke-WebRequest -Uri "$url.sha256" -UseBasicParsing).Content
+            $match = [regex]::Match($text, '[0-9a-fA-F]{64}')
+            if ($match.Success -and $match.Value.ToLower() -ne $actual) {
+              throw "nsh archive checksum mismatch"
+            }
+          } catch {
+            if ($_.Exception.Message -like '*checksum mismatch*') { throw }
+            Write-Warning "nsh $env:NSH_VERSION publishes no .sha256 asset; skipping verification"
+          }
+          Expand-Archive -Path nsh.zip -DestinationPath "$HOME/.nsh"
+          "$HOME/.nsh/bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --no-progress -y
+          $iscc = Get-ChildItem "C:\Program Files (x86)\Inno Setup*\ISCC.exe" |
+            Select-Object -First 1
+          if (-not $iscc) { throw 'ISCC.exe not found after installing Inno Setup' }
+          $iscc.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          nsh --version
+          if [ "${{ matrix.name }}" = "windows" ]; then
+            command -v iscc
+          fi
+
+      # --app-version / --build 覆盖 nsh.json 里的值：
+      # 版本来自 tag，build 号来自 run_number，不再需要往仓库里提交 build 号。
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          nsh package --target ${{ matrix.name }} \
+            --app-version "$VERSION" \
+            --build "${{ github.run_number }}" \
+            -v
+
+      # nsh package 只生成 .iss，安装器要自己用 ISCC 编译
+      - name: Compile Windows installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .nsh/out/reminder.iss
+          iscc .nsh/out/reminder.iss
+          test -f .nsh/out/reminder-setup.exe
+
+      # zip 会丢扩展属性和资源分支，.app 用 ditto 才不会被 Gatekeeper 判成损坏
+      - name: Archive macOS app
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          cd .nsh/out
+          test -d reminder.app
+          ditto -c -k --keepParent reminder.app reminder-macos-arm64.zip
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cd .nsh/out
+          case "${{ matrix.name }}" in
+            windows)
+              cp reminder.zip ../dist/reminder-windows-x86_64.zip
+              cp reminder-setup.exe ../dist/reminder-windows-x86_64-installer.exe
+              ;;
+            macos)
+              cp reminder-macos-arm64.zip ../dist/reminder-macos-arm64.zip
+              ;;
+            linux)
+              cp reminder.tar.gz ../dist/reminder-linux-x86_64.tar.gz
+              ;;
+          esac
+          ls -lh ../dist
+
+      - name: Upload platform artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: reminder-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      # 四个平台的产物少一个就不发布，杜绝残缺 release
+      - name: Verify assets
+        run: |
+          set -euo pipefail
+          expected=(
+            reminder-windows-x86_64.zip
+            reminder-windows-x86_64-installer.exe
+            reminder-macos-arm64.zip
+            reminder-linux-x86_64.tar.gz
+          )
+          for file in "${expected[@]}"; do
+            test -s "assets/$file" || { echo "::error::缺少产物 assets/$file"; exit 1; }
+          done
+          (cd assets && sha256sum "${expected[@]}" > SHA256SUMS.txt)
+          ls -lh assets
+
+      # release-please 已经把 CHANGELOG 写好了，取出版本对应的一节作为 release notes
+      - name: Extract release notes
+        run: |
+          set -euo pipefail
+          version="${{ needs.prepare.outputs.version }}"
+          : > notes.md
+          if [ -f CHANGELOG.md ]; then
+            awk -v v="$version" '
+              index($0, "## [" v "]") == 1 || index($0, "## " v) == 1 { inside = 1; next }
+              inside && /^## / { exit }
+              inside { print }
+            ' CHANGELOG.md > notes.md || true
+          fi
+          if [ ! -s notes.md ]; then
+            printf 'Release %s\n\n见 [CHANGELOG.md](https://github.com/%s/blob/%s/CHANGELOG.md)。\n' \
+              "$version" "$GITHUB_REPOSITORY" "${{ needs.prepare.outputs.tag }}" > notes.md
+          fi
+          cat notes.md
+
+      # 用 gh 而不是第三方 action：draft release 已经存在时保留它的 notes，
+      # 全部资产上传成功后才把 draft 转为正式发布。
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" assets/* --clobber
+            gh release edit "$TAG" --draft=false --latest
+          else
+            gh release create "$TAG" assets/* \
+              --title "$TAG" \
+              --notes-file notes.md \
+              --latest
+          fi
+          gh release view "$TAG" --json tagName,isDraft,assets \
+            --jq '"\(.tagName) draft=\(.isDraft) assets=\([.assets[].name] | join(", "))"'

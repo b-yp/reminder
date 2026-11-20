@@ -52,6 +52,22 @@ nsh package --target macos    # 或 windows / linux
 
 产物在 `.nsh/out/`。
 
+## 下载安装
+
+到 [Releases](https://github.com/b-yp/reminder/releases/latest) 下载对应平台的包：
+
+| 平台 | 文件 |
+| --- | --- |
+| Windows | `reminder-windows-x86_64-installer.exe`（安装版）或 `reminder-windows-x86_64.zip`（免安装） |
+| macOS（Apple silicon） | `reminder-macos-arm64.zip` |
+| Linux（x86_64） | `reminder-linux-x86_64.tar.gz`，需要 GTK 4.14 及以上 |
+
+每个 release 都带一份 `SHA256SUMS.txt`，可以校验下载是否完整。
+
+> 目前没有购买代码签名证书：macOS 首次打开会被 Gatekeeper 拦下，执行
+> `xattr -dr com.apple.quarantine /Applications/reminder.app` 后即可运行；
+> Windows 会被 SmartScreen 提示「未知发布者」，点「更多信息 → 仍要运行」。
+
 ## 使用
 
 ### 添加提醒
@@ -145,6 +161,23 @@ cargo test                   # 只跑 Rust 侧的无头 UI / 逻辑测试
 `App.test.tsx` 用 TypeScript 驱动真实 Rust 根组件，覆盖了主界面、设置抽屉、新建抽屉和表单复位等流程。
 
 README 里的截图不是设计稿：它们由 `nsh test --target macos` 驱动真实窗口，在 macOS 上分别以浅色和深色渲染后截取，再拼成一张对照图。截图后统一补了背景和投影，并裁掉了窗口自带的圆角阴影边缘。为了在一张图里完整展示抽屉内容，设置和自定义表单的截图把窗口临时拉高了；日常运行时窗口默认是 320×350，内容超出时在卡片内滚动。
+
+## 发版
+
+版本号由 [release-please](https://github.com/googleapis/release-please) 按 Conventional Commits 维护，打包由 GitHub Actions 完成：
+
+1. 往 `master` 合入带 `feat:` / `fix:` / `feat!:` 前缀的提交；
+2. release-please 会开一个 `chore(master): release x.y.z` 的 PR，里面已经改好 `Cargo.toml`、`Cargo.lock`、`nsh.json` 的版本号和 `CHANGELOG.md`；
+3. 合并这个 PR：它打出 `v x.y.z` 的 tag，并建一个 **draft** release，然后自动触发打包流水线；
+4. 三个平台都构建成功后，流水线把产物挂上去、把 release 转正。任一平台失败，release 会停在 draft，用户看不到残缺版本。
+
+产物里的版本号来自 tag，build 号来自 `GITHUB_RUN_NUMBER`，不需要手动改 `nsh.json` 的 `build`。
+
+需要重跑某个版本的打包（例如当时某个平台挂了）：
+
+```sh
+gh workflow run release-and-package.yml --ref master -f tag=v0.2.0
+```
 
 ## 平台说明
 

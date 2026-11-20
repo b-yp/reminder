@@ -1,0 +1,59 @@
+name: Release Please
+
+# 只在发版分支上跑。release-please 维护一个 "chore(master): release x.y.z" 的 PR，
+# 合并后由它打 tag、写 CHANGELOG，并创建一个 **draft** release；
+# 真正的产物由 release-and-package.yml 构建并发布。
+# draft 的意义：构建没成功之前，用户看不到这个 release。
+on:
+  push:
+    branches: [master]
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Maintain release PR
+    runs-on: ubuntu-latest
+    outputs:
+      released: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          # GITHUB_TOKEN 足够，代价是它推的 tag / PR 不会再触发别的 workflow，
+          # 所以下面显式 dispatch 打包（workflow_dispatch 不受该限制）。
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # 版本 PR 合并 → release-please 已经打好 tag，把构建交给打包流水线。
+  dispatch-package:
+    name: Dispatch packaging
+    needs: release-please
+    if: needs.release-please.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Trigger release-and-package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.release-please.outputs.tag }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run release-and-package.yml \
+            --ref master \
+            -f tag="$TAG" \
+            -f sha="$SHA"
+          echo "Dispatched packaging for $TAG at $SHA"
