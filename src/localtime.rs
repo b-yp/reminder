@@ -86,8 +86,8 @@ fn utc_fields(unix: u64) -> LocalFields {
 
 #[cfg(target_os = "windows")]
 mod sys {
-    use crate::platform::windows::Win32::Foundation::SYSTEMTIME;
-    use crate::platform::windows::Win32::System::Time::SystemTimeToTzSpecificLocalTime;
+    use nsh_platform_windows::windows::Win32::Foundation::SYSTEMTIME;
+    use nsh_platform_windows::windows::Win32::System::Time::SystemTimeToTzSpecificLocalTime;
 
     use super::LocalFields;
 
