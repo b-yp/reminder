@@ -8,6 +8,7 @@
       "draft": true,
       "force-tag-creation": true,
       "include-component-in-tag": false,
+      "initial-version": "0.1.0",
       "extra-files": [
         {
           "type": "json",

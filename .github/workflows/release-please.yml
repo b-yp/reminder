@@ -7,6 +7,7 @@ name: Release Please
 on:
   push:
     branches: [master]
+  workflow_dispatch:
 
 concurrency:
   group: release-please
@@ -34,6 +35,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+          target-branch: master
 
   # 版本 PR 合并 → release-please 已经打好 tag，把构建交给打包流水线。
   dispatch-package:
