@@ -25,6 +25,8 @@ jobs:
     outputs:
       released: ${{ steps.release.outputs.release_created }}
       tag: ${{ steps.release.outputs.tag_name }}
+      # 用 release 真正指向的提交，而不是本次 workflow 的 github.sha
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - name: Run release-please
         id: release
@@ -47,14 +49,23 @@ jobs:
       actions: write
       contents: read
     steps:
+      # 这个 job 不需要 checkout，所以工作目录不是 git 仓库：
+      # gh 默认靠 git remote 推断仓库，会直接死在 "fatal: not a git repository"。
+      # 显式给 --repo，dispatch 才有仓库上下文。
       - name: Trigger release-and-package
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.release-please.outputs.tag }}
-          SHA: ${{ github.sha }}
+          SHA: ${{ needs.release-please.outputs.sha || github.sha }}
         run: |
           set -euo pipefail
+          if [ -z "$TAG" ]; then
+            echo "::error::release-please 没有输出 tag_name，无法 dispatch 打包"
+            exit 1
+          fi
+          echo "Dispatching packaging for $TAG at $SHA"
           gh workflow run release-and-package.yml \
+            --repo "$GITHUB_REPOSITORY" \
             --ref master \
             -f tag="$TAG" \
             -f sha="$SHA"
