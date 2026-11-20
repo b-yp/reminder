@@ -85,11 +85,16 @@ jobs:
         with:
           prefix-key: v1-release-${{ matrix.name }}
 
-      - name: Install GTK 4
+      # 只装 GTK 会在 gstreamer-sys 处编译失败：wry 的媒体栈需要 gstreamer-1.0.pc
+      - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev build-essential pkg-config
+          sudo apt-get install -y \
+            libgtk-4-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            build-essential pkg-config
 
       - name: Install NSH CLI (Unix)
         if: runner.os != 'Windows'
