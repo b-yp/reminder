@@ -203,20 +203,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cd .nsh/out
           case "${{ matrix.name }}" in
             windows)
-              cp reminder.zip ../dist/reminder-windows-x86_64.zip
-              cp reminder-setup.exe ../dist/reminder-windows-x86_64-installer.exe
+              cp .nsh/out/reminder.zip dist/reminder-windows-x86_64.zip
+              cp .nsh/out/reminder-setup.exe dist/reminder-windows-x86_64-installer.exe
               ;;
             macos)
-              cp reminder-macos-arm64.zip ../dist/reminder-macos-arm64.zip
+              cp .nsh/out/reminder-macos-arm64.zip dist/reminder-macos-arm64.zip
               ;;
             linux)
-              cp reminder.tar.gz ../dist/reminder-linux-x86_64.tar.gz
+              cp .nsh/out/reminder.tar.gz dist/reminder-linux-x86_64.tar.gz
               ;;
           esac
-          ls -lh ../dist
+          ls -lh dist
 
       - name: Upload platform artifact
         uses: actions/upload-artifact@v4
