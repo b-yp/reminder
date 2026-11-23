@@ -29,7 +29,8 @@
 | **迷你胶囊** | 收起为 196×44 的小胶囊，优先显示最紧急的提醒，可直接打卡或展开 |
 | **桌面集成** | 置顶悬浮、随处拖动、位置记忆、托盘常驻、全局热键、开机自启 |
 | **外观** | 浅色 / 深色 / 跟随系统，20%–100% 窗口不透明度，金黄品牌强调色 |
-| **本地优先** | 单个 JSON 文件，原子写入，离线时间补偿，全程不联网 |
+| **本地优先** | 单个 JSON 文件，原子写入，离线时间补偿；联网只用于检查更新 |
+| **自动更新** | 启动后静默检查新版本，下载校验后在你退出时替换，不打断提醒 |
 
 ## 快速开始
 
@@ -54,19 +55,35 @@ nsh package --target macos    # 或 windows / linux
 
 ## 下载安装
 
-到 [Releases](https://github.com/b-yp/reminder/releases/latest) 下载对应平台的包：
+到 [Releases](https://github.com/b-yp/reminder/releases/latest) 下载对应平台的包。文件名里带着版本号，例如 `reminder-0.2.0-windows-x86_64.zip`：
 
 | 平台 | 文件 |
 | --- | --- |
-| Windows | `reminder-windows-x86_64-installer.exe`（安装版）或 `reminder-windows-x86_64.zip`（免安装） |
-| macOS（Apple silicon） | `reminder-macos-arm64.zip` |
-| Linux（x86_64） | `reminder-linux-x86_64.tar.gz`，需要 GTK 4.14 及以上 |
+| Windows | `reminder-<版本>-windows-x86_64-installer.exe`（安装版，装进当前用户）或 `reminder-<版本>-windows-x86_64.zip`（免安装） |
+| macOS（Apple silicon） | `reminder-<版本>-macos-aarch64.tar.gz` |
+| Linux（x86_64） | `reminder-<版本>-linux-x86_64.tar.gz`，需要 GTK 4.14 及以上 |
 
-每个 release 都带一份 `SHA256SUMS.txt`，可以校验下载是否完整。
+每个 release 都带一份 `latest.json`（自动更新用的清单）和 `SHA256SUMS.txt`（校验下载是否完整）。
 
 > 目前没有购买代码签名证书：macOS 首次打开会被 Gatekeeper 拦下，执行
 > `xattr -dr com.apple.quarantine /Applications/reminder.app` 后即可运行；
 > Windows 会被 SmartScreen 提示「未知发布者」，点「更多信息 → 仍要运行」。
+
+### 更新
+
+从 0.2.0 起支持自动更新。启动约 15 秒后静默访问一次 GitHub Releases 的 `latest.json`：
+
+- 有新版本时，设置抽屉的「应用更新」会出现「有新版本」和一个下载按钮；
+- 点「下载更新」下载完整安装包，并按清单里的 SHA-256 校验、解包校验新应用；
+- 校验通过后不打断你：**下次退出 reminder 时会自动装上新版本**；想马上生效就点「重启并更新」，
+  应用会自己重启到新版本。
+
+更新只替换应用本身，`state.json` 里的提醒、设置和窗口位置都保留。应用装在用户可写的目录里才会
+自动替换（Windows 安装版默认装进 `%LOCALAPPDATA%\Programs\reminder`；macOS 放在 `/Applications`；
+Linux 解压到自己的目录）。装在系统保护目录时，这一区会说明情况，并给一个「打开下载页」的按钮
+直接跳到 release 页面手动替换。
+
+> 0.1.0 / 0.2.0 之前的版本没有更新功能，需要手动装一次带更新的版本，之后才会自动更新。
 
 ## 使用
 
@@ -124,7 +141,8 @@ nsh package --target macos    # 或 windows / linux
 
 ## 数据与隐私
 
-所有数据都在本机，没有账号、没有云同步、没有网络请求。
+所有数据都在本机，没有账号、没有云同步。整个应用只有一处网络请求：检查更新时访问 GitHub 的
+releases 清单和安装包，不上传任何数据，也没有统计埋点。
 
 | 平台 | 状态文件 |
 | --- | --- |
@@ -145,6 +163,7 @@ nsh package --target macos    # 或 windows / linux
 | `src/storage.rs` | JSON 持久化、原子写入、离线时间补偿 |
 | `src/window.rs` | 平台窗口层：置顶悬浮、透明度、托盘、关闭拦截 |
 | `src/hotkey.rs`、`src/autostart.rs`、`src/alarm.rs` | 全局热键、开机自启、到期提示音与通知 |
+| `src/updater.rs` | 应用更新：读打包配置、检查 / 下载新版本、退出时替换 |
 | `src/theme_mode.rs`、`src/icons.rs`、`src/presets.rs` | 主题令牌与对比度测试、矢量图标、常用预设 |
 
 界面遵循 NSH 的编码与设计规范：主题色统一来自 `nsh_base::theme()`，品牌金黄作为强调色，`theme_mode` 里有 WCAG AA 的对比度回归测试；交互控件基于 NSH 的语义组件构建，保留键盘操作与读屏标签。
@@ -169,7 +188,9 @@ README 里的截图不是设计稿：它们由 `nsh test --target macos` 驱动�
 1. 往 `master` 合入带 `feat:` / `fix:` / `feat!:` 前缀的提交；
 2. release-please 会开一个 `chore(master): release x.y.z` 的 PR，里面已经改好 `Cargo.toml`、`Cargo.lock`、`nsh.json` 的版本号和 `CHANGELOG.md`；
 3. 合并这个 PR：它打出 `v x.y.z` 的 tag，并建一个 **draft** release，然后自动触发打包流水线；
-4. 三个平台都构建成功后，流水线把产物挂上去、把 release 转正。任一平台失败，release 会停在 draft，用户看不到残缺版本。
+4. 三个平台都构建成功后，流水线用 `nsh update-manifest` 生成 `latest.json`（自动更新用的清单），
+   校验清单里的 id、版本和三个平台的条目齐全，再把清单和产物一起挂上去、把 release 转正。
+   任一平台失败，release 会停在 draft，用户看不到残缺版本，也不会把半成品推成「最新」。
 
 产物里的版本号来自 tag，build 号来自 `GITHUB_RUN_NUMBER`，不需要手动改 `nsh.json` 的 `build`。
 

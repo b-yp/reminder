@@ -97,3 +97,17 @@ test("clears the add drawer's tab and draft when reopened", async () => {
   expect(app.texts()).toContain("快捷填入:");
   expect(app.texts()).not.toContain("每天提醒时间");
 });
+
+test("shows the update section in the settings drawer", async () => {
+  const app = await open(".");
+  if (!app.texts().includes("reminder 提醒")) {
+    await app.press("role:button[展开为卡片]");
+  }
+  await app.press("role:button[偏好设置]");
+  await app.waitFor("text:应用更新");
+  const texts = app.texts().join(" ");
+  // 无头测试跑的是开发运行：没有打包配置，这一区只说明不能自动更新
+  expect(texts).toContain("应用更新");
+  expect(texts).toContain("不可用");
+  expect(texts).toContain("开发运行");
+});

@@ -188,6 +188,9 @@ pub const ICON_EDIT: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 /// 常用推荐 / 星标推荐（Star / Recommendation）
 pub const ICON_STAR: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>"#;
 
+/// 检查更新 / 刷新（Refresh / Update）
+pub const ICON_REFRESH: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" /><path d="M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4" /></svg>"#;
+
 
 /// 根据标识获取对应 SVG
 pub fn get_icon_markup(icon_key: &str) -> &'static str {

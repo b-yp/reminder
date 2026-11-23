@@ -189,32 +189,29 @@ jobs:
           iscc .nsh/out/reminder.iss
           test -f .nsh/out/reminder-setup.exe
 
-      # zip 会丢扩展属性和资源分支，.app 用 ditto 才不会被 Gatekeeper 判成损坏
-      - name: Archive macOS app
-        if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          cd .nsh/out
-          test -d reminder.app
-          ditto -c -k --keepParent reminder.app reminder-macos-arm64.zip
-
+      # 自动更新靠文件名认平台：`nsh package` 在设了 updater 之后会额外写出
+      # `<name>-<version>-<os>-<arch>.<ext>`，原样收走，改名会让清单记错平台。
       - name: Collect artifacts
         shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p dist
           case "${{ matrix.name }}" in
-            windows)
-              cp .nsh/out/reminder.zip dist/reminder-windows-x86_64.zip
-              cp .nsh/out/reminder-setup.exe dist/reminder-windows-x86_64-installer.exe
-              ;;
-            macos)
-              cp .nsh/out/reminder-macos-arm64.zip dist/reminder-macos-arm64.zip
-              ;;
-            linux)
-              cp .nsh/out/reminder.tar.gz dist/reminder-linux-x86_64.tar.gz
-              ;;
+            windows) expected="reminder-${VERSION}-windows-x86_64.zip" ;;
+            macos)   expected="reminder-${VERSION}-macos-aarch64.tar.gz" ;;
+            linux)   expected="reminder-${VERSION}-linux-x86_64.tar.gz" ;;
           esac
+          test -s ".nsh/out/${expected}" || {
+            echo "::error::nsh package 没有产出 .nsh/out/${expected}"
+            ls -lh .nsh/out
+            exit 1
+          }
+          cp ".nsh/out/${expected}" dist/
+          if [ "${{ matrix.name }}" = "windows" ]; then
+            cp .nsh/out/reminder-setup.exe "dist/reminder-${VERSION}-windows-x86_64-installer.exe"
+          fi
           ls -lh dist
 
       - name: Upload platform artifact
@@ -241,15 +238,29 @@ jobs:
           path: assets
           merge-multiple: true
 
-      # 四个平台的产物少一个就不发布，杜绝残缺 release
+      # 生成更新清单要用 nsh：`nsh update-manifest` 会读压缩包的 app.json，
+      # 算出每个平台的 size 与 SHA-256。
+      - name: Install NSH CLI
+        run: |
+          set -euo pipefail
+          url="https://github.com/longbridge/nsh/releases/download/v${NSH_VERSION}/nsh-linux-x86_64.tar.gz"
+          mkdir -p "$HOME/.nsh"
+          curl -fsSL "$url" -o /tmp/nsh.tar.gz
+          tar -xzf /tmp/nsh.tar.gz --strip-components=1 -C "$HOME/.nsh"
+          echo "$HOME/.nsh/bin" >> "$GITHUB_PATH"
+          "$HOME/.nsh/bin/nsh" --version
+
+      # 三个平台的产物少一个就不发布，杜绝残缺 release
       - name: Verify assets
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           expected=(
-            reminder-windows-x86_64.zip
-            reminder-windows-x86_64-installer.exe
-            reminder-macos-arm64.zip
-            reminder-linux-x86_64.tar.gz
+            "reminder-${VERSION}-windows-x86_64.zip"
+            "reminder-${VERSION}-windows-x86_64-installer.exe"
+            "reminder-${VERSION}-macos-aarch64.tar.gz"
+            "reminder-${VERSION}-linux-x86_64.tar.gz"
           )
           for file in "${expected[@]}"; do
             test -s "assets/$file" || { echo "::error::缺少产物 assets/$file"; exit 1; }
@@ -275,6 +286,32 @@ jobs:
               "$version" "$GITHUB_REPOSITORY" "${{ needs.prepare.outputs.tag }}" > notes.md
           fi
           cat notes.md
+
+      # 自动更新的清单：latest.json 里是 id、版本、说明和三个平台的压缩包 + SHA-256。
+      # 没配上 publicKey，所以清单不签名；谁改了 release 的附件谁就能改推送的版本，
+      # 这也是「不开代码签名」这个决定的一部分。
+      - name: Write update manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          # 清单的版本来自 nsh.json，产物来自 tag：两边不一致会让用户收到「同一个版本」的更新
+          actual=$(jq -r .version nsh.json)
+          if [ "$actual" != "$VERSION" ]; then
+            echo "::error::nsh.json 的版本是 $actual，tag 是 $VERSION"
+            exit 1
+          fi
+          nsh update-manifest assets/*.tar.gz assets/*.zip \
+            --entry . --notes notes.md --out assets
+          test -s assets/latest.json
+          # 清单自己也要过一遍：id 对、版本是这次发的、三个平台都在
+          jq -e '.id == "cc.baiyapeng.reminder"' assets/latest.json > /dev/null
+          jq -e --arg v "$VERSION" '.version == $v' assets/latest.json > /dev/null
+          for platform in windows-x86_64 macos-aarch64 linux-x86_64; do
+            jq -e --arg p "$platform" '.platforms[$p].sha256 != null' assets/latest.json > /dev/null \
+              || { echo "::error::清单里缺少平台 $platform"; exit 1; }
+          done
+          cat assets/latest.json
 
       # 用 gh 而不是第三方 action：draft release 已经存在时保留它的 notes，
       # 全部资产上传成功后才把 draft 转为正式发布。

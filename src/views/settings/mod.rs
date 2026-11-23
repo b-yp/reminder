@@ -1,7 +1,8 @@
-//! 偏好设置抽屉：外观主题、窗口不透明度、全局热键、开机自启。
+//! 偏好设置抽屉：外观主题、窗口不透明度、全局热键、开机自启、应用更新。
 
 mod autostart_setting;
 mod hotkey_setting;
+mod update_setting;
 
 use nsh_base::{SliderValue, collapsible, slider, theme};
 use nsh_core::prelude::*;
@@ -190,6 +191,16 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                     .border_color(move || theme().border),
             )
             // 4. 开机自启：登录系统后自动运行挂件，开关直接写系统启动项
-            .child(autostart_setting::render(app)),
+            .child(autostart_setting::render(app))
+            // 细分割线
+            .child(
+                view()
+                    .w_full()
+                    .my(px(2.0))
+                    .border_t_1()
+                    .border_color(move || theme().border),
+            )
+            // 5. 应用更新：当前版本、检查 / 下载新版本，退出应用时替换
+            .child(update_setting::render(app)),
     )
 }

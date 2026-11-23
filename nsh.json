@@ -6,5 +6,8 @@
   "icon": "assets/logo.png",
   "rust": ".",
   "root": "App",
-  "appearance": "dark"
+  "appearance": "dark",
+  "updater": {
+    "github": "b-yp/reminder"
+  }
 }
