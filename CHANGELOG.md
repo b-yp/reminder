@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.0](https://github.com/b-yp/reminder/compare/v0.1.0...v0.2.0) (2026-11-23)
+
+
+### Features
+
+* add auto update on quit ([73d6839](https://github.com/b-yp/reminder/commit/73d68398016791bf6acb6a1d3114e27e5496a85c))
+* add auto update on quit ([7c88d79](https://github.com/b-yp/reminder/commit/7c88d795baf3151a7d162af62b32bd8f6ba8333f))
+
 ## 0.1.0 (2026-11-21)
 
 
