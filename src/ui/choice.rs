@@ -6,7 +6,8 @@
 use nsh_base::{theme, toggle, toggle_group};
 use nsh_core::prelude::*;
 
-use super::tokens::{font, radius, size};
+use super::focus::focus_ring;
+use super::tokens::{font, motion, radius, size};
 use crate::icons;
 use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_GOLD_STRONG};
 
@@ -36,6 +37,20 @@ where
     group
 }
 
+/// 会折行的选择组：窄窗口、大字号下，一行放不下的胶囊折到下一行，
+/// 而不是被窗口边缘裁掉。
+pub fn choice_group_wrap<I>(items: I) -> impl IntoElement
+where
+    I: IntoIterator,
+    I::Item: IntoElement,
+{
+    let mut group = toggle_group().w_full().flex_row().flex_wrap().items_center().gap(px(3.0));
+    for item in items {
+        group = group.child(item);
+    }
+    group
+}
+
 /// 小号文字胶囊：快捷填入、常用时刻、提醒方式。
 pub fn choice_chip(
     label: &'static str,
@@ -49,7 +64,7 @@ pub fn choice_chip(
         .flex_row()
         .items_center()
         .justify_center()
-        .px(px(6.0))
+        .px(px(5.0))
         .py(px(2.0))
         .rounded(px(radius::SM))
         .bg(move || {
@@ -77,8 +92,10 @@ pub fn choice_chip(
             })
         })
         .active(|s| s.scale(0.96).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .child(text(label).text_size(px(font::CAPTION)).text_color(move || {
             if pressed() {
                 ACCENT_GOLD_STRONG
@@ -131,8 +148,10 @@ pub fn segment_toggle(
             })
         })
         .active(|s| s.scale(0.97).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .child(icons::icon_svg(icon_markup, 11.0, move || {
             if pressed() {
                 ACCENT_GOLD_STRONG
@@ -140,7 +159,7 @@ pub fn segment_toggle(
                 theme().muted_foreground
             }
         }))
-        .child(text(label).text_size(px(font::CAPTION)).text_color(move || {
+        .child(text(label).text_size(px(font::LABEL)).text_color(move || {
             if pressed() {
                 ACCENT_GOLD_STRONG
             } else {
@@ -182,8 +201,10 @@ pub fn icon_choice(
         })
         .hover(move |s| s.border_color(move || icons::get_item_adaptive(icon_key)))
         .active(|s| s.scale(0.94).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .child(icons::icon_svg(
             icons::get_icon_markup(icon_key),
             12.0,

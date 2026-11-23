@@ -11,6 +11,7 @@ use crate::localtime;
 use crate::model::ReminderItem;
 use crate::theme_mode::{ACCENT_GOLD_BG, ACCENT_GOLD_STRONG, OVERDUE_FG, OVERDUE_WASH};
 use crate::ui;
+use crate::ui::tokens::{font, radius, space};
 
 /// 核心列表：当列表为空时展示精致的空状态引导；有任务时基于 each 原语基于 key 响应式高效追踪每个 item 的变化
 pub fn render(app: AppCtx) -> impl IntoElement {
@@ -24,7 +25,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
             .window_drag(true)
             .w_full()
             .flex_col()
-            .gap(px(6.0))
+            .gap(px(space::SNUG))
             .child(each(
                 items,
                 |item| item.id,
@@ -43,7 +44,7 @@ fn render_empty_state(on_add: impl Fn() + Copy + 'static) -> impl IntoElement {
         .flex_col()
         .items_center()
         .justify_center()
-        .gap(px(8.0))
+        .gap(px(space::GAP))
         .child(
             view()
                 .w(px(38.0))
@@ -61,12 +62,12 @@ fn render_empty_state(on_add: impl Fn() + Copy + 'static) -> impl IntoElement {
                 .gap(px(2.0))
                 .child(
                     text("暂无进行中的提醒")
-                        .text_size(px(12.5))
+                        .text_size(px(font::TITLE))
                         .text_color(move || theme().foreground),
                 )
                 .child(
                     text("添加喝水、久坐活动等习惯开始提醒")
-                        .text_size(px(10.5))
+                        .text_size(px(font::LABEL))
                         .text_color(move || theme().muted_foreground),
                 ),
         )
@@ -84,6 +85,8 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
     let on_delete = move |id| app.delete(id);
     let item_id = item_sig.get_untracked().id;
     let icon_key = item_sig.get_untracked().icon.clone();
+    // 打卡后的反馈：让按钮弹一下（在 UI 线程播放，减弱动态效果时直接落到终态）
+    let check_pop = motion();
 
     view()
         .window_drag(true)
@@ -91,9 +94,10 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
         .flex_row()
         .items_center()
         .justify_between()
-        .py(px(4.0))
-        .px(px(4.0))
-        .rounded(px(6.0))
+        .gap(px(space::GAP))
+        .py(px(space::TIGHT))
+        .px(px(space::TIGHT))
+        .rounded(px(radius::LG))
         // 逾期时用固定的警示底色令牌（浅色淡红、深色暗红），不靠 opacity 叠加
         .bg(move || {
             if item_sig.get().is_expired() {
@@ -109,7 +113,7 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                 .min_w(px(0.0))
                 .flex_row()
                 .items_center()
-                .gap(px(8.0))
+                .gap(px(space::GAP))
                 // 左侧发光圆环进度图标（到期时红光警示，SVG 底轨原生自适应明暗）
                 .child(
                     view()
@@ -152,7 +156,7 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                                     text(move || item_sig.get().name.clone())
                                         .flex_1()
                                         .min_w(px(0.0))
-                                        .text_size(px(13.0))
+                                        .text_size(px(font::TITLE))
                                         .text_color(move || theme().foreground)
                                         .truncate(),
                                 )
@@ -202,7 +206,8 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                                 ))
                                 .child(
                                     text(move || item_sig.get().format_remaining())
-                                        .text_size(px(12.0))
+                                        .text_size(px(font::BODY))
+                                        .tabular_nums()
                                         .text_color(move || {
                                             if item_sig.get().is_expired() {
                                                 OVERDUE_FG
@@ -221,21 +226,38 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                 .flex_shrink_0()
                 .flex_row()
                 .items_center()
-                .gap(px(6.0))
-                // 当天完成次数（历史累计只留在数据层，界面不展示）
-                .child(
-                    text(move || item_sig.get().today_label(&localtime::now()))
-                        .text_size(px(12.0))
-                        .text_color(move || theme().muted_foreground),
-                )
-                // 打卡：行内唯一的强调动作（金黄浅底，逾期也不换颜色，
-                // 逾期由行底 wash 与红色倒计时承担）
+                .gap(px(space::SNUG))
+                // 当天完成次数：固定宽度的车道 + 等宽数字，次数从 9 变 10 时
+                // 右侧的动作按钮不会跟着挪位。
                 .child(
                     view()
+                        .test_id("row-count")
+                        .w(px(54.0))
+                        .flex_row()
+                        .justify_end()
+                        .child(
+                            text(move || item_sig.get().today_label(&localtime::now()))
+                                .text_size(px(font::BODY))
+                                .tabular_nums()
+                                .text_color(move || theme().muted_foreground),
+                        ),
+                )
+                // 打卡：行内唯一的强调动作。只有「已到期」这一行给金黄，
+                // 其余行用中性底 —— 一张卡片里只留一个焦点。
+                .child(
+                    view()
+                        .test_id("row-check")
+                        .bind_motion(&check_pop)
                         .child(ui::action_button(
                             "打卡完成",
-                            28.0,
-                            || ui::ActionTone::Accent,
+                            ui::tokens::size::CONTROL_MD,
+                            move || {
+                                if item_sig.get().is_expired() {
+                                    ui::ActionTone::Accent
+                                } else {
+                                    ui::ActionTone::Quiet
+                                }
+                            },
                             || false,
                             move || {
                                 let now = localtime::now();
@@ -245,13 +267,20 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                                     }
                                 });
                                 on_save();
+                                check_pop.play(MotionPreset::Pulse);
                             },
-                            icons::icon_svg(icons::ICON_CHECK, 12.0, ACCENT_GOLD_STRONG),
+                            icons::icon_svg(icons::ICON_CHECK, 12.0, move || {
+                                if item_sig.get().is_expired() {
+                                    ACCENT_GOLD_STRONG
+                                } else {
+                                    theme().muted_foreground
+                                }
+                            }),
                         ))
                         .tooltip(ui::tooltip_bubble("完成打卡")),
                 )
                 // 延后与删除收进「⋯」菜单：删除触发底部撤销 Toast
-                .child(ui::row_menu(
+                .child(view().test_id("row-more").child(ui::row_menu(
                     move || item_sig.get().is_done_today(&localtime::now()),
                     move || {
                         let now = localtime::now();
@@ -266,7 +295,7 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                         }
                     },
                     move || on_delete(item_id),
-                )),
+                ))),
         )
 }
 
@@ -274,6 +303,7 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
 mod tests {
     use super::*;
     use crate::storage::AppState;
+    use nsh_testing::LayoutNode;
 
     #[component]
     fn ShortRowHost() -> impl IntoElement {
@@ -289,13 +319,14 @@ mod tests {
         ))
     }
 
+    /// 40 个中文字符：用来验证长名字不会挤坏右侧车道
+    const LONG_NAME: &str =
+        "这是测试超长任务名称用来验证行布局不会被挤坏的四十个中文字符串测试用例一二三四五";
+
     #[component]
     fn LongRowHost() -> impl IntoElement {
-        // 40 个中文字符
-        let name =
-            "这是测试超长任务名称用来验证行布局不会被挤坏的四十个中文字符串测试用例一二三四五";
-        assert_eq!(name.chars().count(), 40);
-        let item = ReminderItem::new(name, "droplet", 1800);
+        assert_eq!(LONG_NAME.chars().count(), 40);
+        let item = ReminderItem::new(LONG_NAME, "droplet", 1800);
         let item_sig = signal(item);
         let items = signal(vec![item_sig.get()]);
         view().w(px(320.0)).child(render_item_row(
@@ -306,6 +337,21 @@ mod tests {
             }),
         ))
     }
+
+    fn find<'a>(nodes: &'a [LayoutNode], text: &str) -> &'a LayoutNode {
+        nodes
+            .iter()
+            .find(|n| n.text.as_ref().is_some_and(|t| t.text.text == text))
+            .unwrap_or_else(|| panic!("布局里找不到文本 {text:?}"))
+    }
+
+    fn by_test_id<'a>(nodes: &'a [LayoutNode], id: &str) -> &'a LayoutNode {
+        nodes
+            .iter()
+            .find(|n| n.test_id.as_deref() == Some(id))
+            .unwrap_or_else(|| panic!("布局里找不到 test_id {id:?}"))
+    }
+
     #[test]
     fn test_long_name_row_regression_320w() {
         use nsh_engine::{EngineConfig, Points, Root, Size};
@@ -335,42 +381,53 @@ mod tests {
         let nodes_short = app_short.screen().layout_nodes();
         let nodes_long = app_long.screen().layout_nodes();
 
+        // 2. 名称被 flex_1 + truncate 限制在分配宽度内，不撑开行
         assert_eq!(
-            nodes_short.len(),
-            nodes_long.len(),
-            "组件节点树结构应保持稳定一致"
-        );
-
-        // 2. 验证名称和徽标所在的 row (node 6) 明确开启了 overflow_hidden (clips == true)
-        let row_long = &nodes_long[6];
-        assert!(
-            row_long.clips,
-            "名称和徽标所在的 row 必须开启 overflow_hidden (clips)"
-        );
-
-        // 3. 验证长文本容器没有被撑大超出其可用分配空间
-        let name_text_short = &nodes_short[7];
-        let name_text_long = &nodes_long[7];
-        assert_eq!(
-            name_text_long.bounds.size.width, name_text_short.bounds.size.width,
+            find(&nodes_long, LONG_NAME).bounds.size.width,
+            find(&nodes_short, "喝水").bounds.size.width,
             "长文本由于 flex_1 和 truncate 约束在可用宽度内"
         );
 
-        // 4. 验证徽标没有被挤走（node 8）
-        let badge_short = &nodes_short[8];
-        let badge_long = &nodes_long[8];
+        // 3. 周期徽标不位移、不变形
         assert_eq!(
-            badge_long.bounds, badge_short.bounds,
+            find(&nodes_long, "30m").bounds,
+            find(&nodes_short, "30m").bounds,
             "周期徽标 bounds 在长文本下不发生位移和变形"
         );
 
-        // 5. 验证右侧操作区整体 (node 13) 及「今日 0 次」(node 14)、打卡按钮 (node 15)、更多菜单 (node 19) 不位移
-        for idx in [13, 14, 15, 19] {
-            assert_eq!(
-                nodes_long[idx].bounds, nodes_short[idx].bounds,
-                "节点 {} (右侧操作区组件) 在 40 个中文字符下不发生位移",
-                idx
+        // 4. 右侧车道：次数 54 宽（等宽数字 + 右对齐）、打卡与菜单都是 24 的方格
+        let count_long = by_test_id(&nodes_long, "row-count");
+        assert_eq!(
+            count_long.bounds,
+            by_test_id(&nodes_short, "row-count").bounds,
+            "统计车道在长文本下不位移"
+        );
+        assert!(
+            (count_long.bounds.size.width.0 - 54.0).abs() < 0.5,
+            "统计车道固定 54 宽，实测 {}",
+            count_long.bounds.size.width.0
+        );
+
+        let check_long = by_test_id(&nodes_long, "row-check");
+        let check_short = by_test_id(&nodes_short, "row-check");
+        let more_long = by_test_id(&nodes_long, "row-more");
+        assert_eq!(
+            check_long.bounds, check_short.bounds,
+            "打卡按钮在长文本下不位移"
+        );
+        for (label, node) in [("打卡", check_long), ("更多", more_long)] {
+            assert!(
+                (node.bounds.size.width.0 - 24.0).abs() < 0.5
+                    && (node.bounds.size.height.0 - 24.0).abs() < 0.5,
+                "{label}按钮应为 24×24 的方格，实测 {}×{}",
+                node.bounds.size.width.0,
+                node.bounds.size.height.0
             );
         }
+        assert_eq!(
+            more_long.bounds.origin.x.0,
+            check_long.bounds.origin.x.0 + 24.0 + 6.0,
+            "打卡与更多按钮同组等宽、间距一致"
+        );
     }
 }

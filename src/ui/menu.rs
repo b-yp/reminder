@@ -4,7 +4,8 @@
 use nsh_base::{button, menu, menu_item, theme};
 use nsh_core::prelude::*;
 
-use super::tokens::{font, radius, size};
+use super::focus::focus_ring;
+use super::tokens::{font, motion, radius, size};
 use crate::icons;
 
 /// 提醒行右侧的「⋯」菜单：延后 5 分钟、删除。
@@ -28,7 +29,7 @@ pub fn row_menu(
         .trigger(
             button()
                 .accessibility_label("更多操作")
-                .w(px(22.0))
+                .w(px(size::CONTROL_MD))
                 .h(px(size::CONTROL_MD))
                 .rounded(px(radius::LG))
                 .flex_row()
@@ -39,8 +40,10 @@ pub fn row_menu(
                 .border_color(move || theme().border)
                 .hover(move |s| s.bg(move || theme().muted))
                 .active(|s| s.scale(0.96).opacity(0.9))
-                .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+                .focus_visible(focus_ring)
                 .transition_colors()
+                .transition_transform()
+                .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
                 .child(icons::icon_svg(icons::ICON_MORE, 12.0, move || {
                     theme().muted_foreground
                 })),
@@ -69,6 +72,8 @@ fn item(
         .gap(px(4.0))
         .hover(move |s| s.bg(move || theme().muted))
         .active(move |s| s.bg(move || theme().muted))
+        .transition_colors()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .child(text(label).text_size(px(font::BODY)).text_color(move || {
             if destructive {
                 theme().destructive

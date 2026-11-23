@@ -1,4 +1,4 @@
-//! 顶部 Header：左侧 App 微标、标题与数量徽章，右侧挂件操作按钮组
+//! 顶部 Header：左侧 App 微标与标题，右侧静默的挂件操作按钮组
 //! （新建、暂停、偏好设置、收起为胶囊、收进托盘）。
 
 use nsh_base::theme;
@@ -9,12 +9,15 @@ use crate::constants::LOGO;
 use crate::icons;
 use crate::theme_mode::ACCENT_GOLD_STRONG;
 use crate::ui;
+use crate::ui::tokens::{font, radius, space};
 use crate::window::hide_to_tray;
 
-/// 顶部 Header：左侧金黄微标与标题，右侧挂件操作按钮组（新建、暂停、偏好设置、收起为胶囊、收进托盘）
+/// 顶部 Header：左侧金黄微标与标题，右侧挂件操作按钮组（新建、暂停、偏好设置、收起为胶囊、收进托盘）。
+///
+/// 右侧都是静默图标：只有「对应的抽屉正开着」才浮出金黄底，窗口里的内容才是主角。
+/// 提醒数量只在底栏出现一次，避免和顶栏重复。
 pub fn render(app: AppCtx) -> impl IntoElement {
     let AppCtx {
-        items,
         is_all_paused,
         show_add,
         show_settings,
@@ -22,41 +25,27 @@ pub fn render(app: AppCtx) -> impl IntoElement {
     } = app;
     let on_enter_mini = move || app.enter_mini();
     let on_save = move || app.save();
-    let count_text = computed(move || items.with(|list| format!("{} 项", list.len())));
 
     view()
         .window_drag(true)
         .flex_row()
         .items_center()
         .justify_between()
-        .pb(px(4.0))
-        // 左侧：微标 + 标题 + 数量指示
+        .pb(px(space::TIGHT))
+        // 左侧：微标 + 标题
         .child(
             view()
                 .flex_row()
                 .items_center()
-                .gap(px(6.0))
+                .gap(px(space::SNUG))
                 .child(
                     // App Logo 微标
-                    image(LOGO).size(px(22.0)).rounded(px(5.0)),
+                    image(LOGO).size(px(22.0)).rounded(px(radius::LG)),
                 )
                 .child(
                     text("reminder 提醒")
-                        .text_size(px(13.0))
+                        .text_size(px(font::TITLE))
                         .text_color(move || theme().foreground),
-                )
-                .child(
-                    // 进行中数量指示小徽章
-                    view()
-                        .px(px(5.0))
-                        .py(px(1.0))
-                        .rounded(px(10.0))
-                        .bg(move || theme().muted)
-                        .child(
-                            text(move || count_text.get())
-                                .text_size(px(10.0))
-                                .text_color(move || theme().muted_foreground),
-                        ),
                 ),
         )
         // 右侧挂件专属操作按钮组：新建提醒、暂停/恢复全部、偏好设置、收起胶囊、收进托盘
@@ -65,13 +54,14 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                 .window_drag(false) // 按钮区域不触发窗口拖拽
                 .flex_row()
                 .items_center()
-                .gap(px(4.0))
+                .gap(px(space::TIGHT))
                 // 新建提醒
                 .child(
                     view()
                         .test_id("add-toggle")
                         .child(ui::icon_button(
                             "新建提醒",
+                            ui::IconTone::Ghost,
                             move || show_add.get(),
                             || false,
                             move || app.toggle_add(),
@@ -94,6 +84,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                     view()
                         .child(ui::icon_button(
                             "暂停或恢复全部提醒",
+                            ui::IconTone::Ghost,
                             move || is_all_paused.get(),
                             || false,
                             move || {
@@ -124,6 +115,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                         .test_id("settings-toggle")
                         .child(ui::icon_button(
                             "偏好设置",
+                            ui::IconTone::Ghost,
                             move || show_settings.get(),
                             || false,
                             move || app.toggle_settings(),
@@ -146,6 +138,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                     view()
                         .child(ui::icon_button(
                             "收起为迷你胶囊",
+                            ui::IconTone::Ghost,
                             || false,
                             || false,
                             on_enter_mini,
@@ -161,6 +154,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                         .test_id("hide-to-tray-btn")
                         .child(ui::icon_button(
                             "收进托盘，继续提醒",
+                            ui::IconTone::Ghost,
                             || false,
                             || false,
                             move || {

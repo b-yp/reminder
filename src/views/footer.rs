@@ -9,6 +9,7 @@ use crate::icons;
 use crate::localtime;
 use crate::model::ReminderItem;
 use crate::theme_mode::ACCENT_GOLD_STRONG;
+use crate::ui::tokens::{font, space};
 
 /// 底部统计文案：只汇总各提醒「今天」的完成次数，历史累计不进入底栏
 fn footer_summary(items: &[ReminderItem], now: &localtime::LocalNow) -> String {
@@ -42,13 +43,13 @@ pub fn render(app: AppCtx) -> impl IntoElement {
         .flex_row()
         .items_center()
         .justify_between()
-        .pt(px(6.0))
+        .pt(px(space::SNUG))
         .border_t_1()
         .border_color(move || theme().border)
         .child(
             view().child(
                 text(move || summary_text.get())
-                    .text_size(px(11.0))
+                    .text_size(px(font::BODY))
                     .text_color(move || theme().muted_foreground),
             ),
         )
@@ -57,7 +58,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
             view()
                 .flex_row()
                 .items_center()
-                .gap(px(6.0))
+                .gap(px(space::SNUG))
                 .child(when(
                     move || hotkey_enabled.get(),
                     move || {
@@ -65,13 +66,13 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                             .test_id("hotkey-hint")
                             .flex_row()
                             .items_center()
-                            .gap(px(4.0))
+                            .gap(px(space::TIGHT))
                             .child(icons::icon_svg(icons::ICON_KEYBOARD, 11.0, move || {
                                 theme().muted_foreground
                             }))
                             .child(
                                 text(move || hotkey::label(&hotkey.get()))
-                                    .text_size(px(10.5))
+                                    .text_size(px(font::CAPTION))
                                     .text_color(move || theme().muted_foreground),
                             )
                     },
@@ -90,7 +91,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                             ))
                             .child(
                                 text(move || format!("{:.0}%", opacity.get() * 100.0))
-                                    .text_size(px(10.5))
+                                    .text_size(px(font::CAPTION))
                                     .text_color(ACCENT_GOLD_STRONG),
                             )
                     },

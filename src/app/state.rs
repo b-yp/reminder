@@ -154,8 +154,8 @@ fn install_tick(app: AppCtx) {
                 pending.deadline = pending.deadline.saturating_add(1);
                 app.pending_delete.set(Some(pending));
             } else if crate::localtime::unix_now() >= pending.deadline {
-                app.is_toast_hovered.set(false);
-                app.pending_delete.set(None);
+                // 到点：先播退场动画，`leave_toast` 播完再卸载
+                app.leave_toast();
             }
         }
 

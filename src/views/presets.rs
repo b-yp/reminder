@@ -10,6 +10,7 @@ use crate::localtime;
 use crate::model::{ReminderItem, insert_item_at_top};
 use crate::presets::{PresetKind, PresetReminder};
 use crate::ui;
+use crate::ui::tokens::font;
 
 /// 渲染单个常用推荐预设卡片（精致卡片、无勾选、清晰时间标识、单例防重）
 pub(crate) fn render_card(preset: &'static PresetReminder, app: AppCtx) -> impl IntoElement {
@@ -41,6 +42,7 @@ pub(crate) fn render_card(preset: &'static PresetReminder, app: AppCtx) -> impl 
                     }
                 };
                 items.update(|list| {
+                    ui::animate_rows();
                     insert_item_at_top(list, item);
                 });
                 on_save();
@@ -73,12 +75,12 @@ pub(crate) fn section_label(title: &'static str, hint: &'static str) -> impl Int
         .justify_between()
         .child(
             text(title)
-                .text_size(px(11.0))
+                .text_size(px(font::LABEL))
                 .text_color(move || theme().muted_foreground),
         )
         .child(
             text(hint)
-                .text_size(px(10.5))
+                .text_size(px(font::CAPTION))
                 .text_color(move || theme().muted_foreground),
         )
 }

@@ -3,7 +3,8 @@
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
 
-use super::tokens::{font, radius, size};
+use super::focus::focus_ring;
+use super::tokens::{font, motion, radius};
 use crate::icons;
 use crate::theme_mode::{ACCENT_DONE_BG, ACCENT_DONE_BORDER, ACCENT_DONE_FG};
 
@@ -51,8 +52,10 @@ pub fn preset_card(
             })
         })
         .active(|s| s.scale(0.98).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(
             view()
@@ -64,7 +67,7 @@ pub fn preset_card(
                     12.0,
                     icons::get_item_adaptive(icon_key),
                 ))
-                .child(text(name).text_size(px(font::CAPTION)).text_color(move || {
+                .child(text(name).text_size(px(font::LABEL)).text_color(move || {
                     if added() {
                         ACCENT_DONE_FG
                     } else {

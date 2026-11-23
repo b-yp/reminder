@@ -3,6 +3,7 @@
 //! 底座是 `nsh/base` 的 `button`：它自带按钮角色、Tab 可达、Enter / Space
 //! 触发、禁用语义与 `focus-visible` 的键盘焦点；这里只补外观与状态色。
 use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_GOLD_FG};
+use super::focus::focus_ring;
 use super::tokens::{font, motion, radius, size};
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
@@ -14,17 +15,29 @@ pub enum ActionTone {
     /// 当前该做的事：金黄浅底 + 金描边（打卡）。
     Accent,
 }
+/// 图标按钮的语气（只影响外观，不影响语义）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconTone {
+    /// 静默的工具栏图标：没有底色和描边，悬停才浮出一层浅底（顶栏）。
+    Ghost,
+    /// 需要一块可见实底的图标按钮（迷你胶囊里的动作）。
+    Quiet,
+}
+
 /// 顶栏与迷你胶囊里的方形图标按钮：24×24，圆角 6（扩充热区与防误触）。
 ///
-/// `selected` 只表达「这个按钮对应的面板正开着」，颜色与语义都由这里给。
-/// `disabled` 表达该动作当前是否不可用，禁用时呈现透明度淡化并阻止触发。
+/// `selected` 只表达「这个按钮对应的面板正开着」，颜色与语义都由这里给；
+/// `tone` 决定静默还是实底。`disabled` 表达该动作当前是否不可用，
+/// 禁用时呈现透明度淡化并阻止触发。
 pub fn icon_button(
     label: &'static str,
+    tone: IconTone,
     selected: impl Fn() -> bool + Copy + 'static,
     disabled: impl Fn() -> bool + Copy + 'static,
     on_press: impl Fn() + 'static,
     content: impl IntoElement,
 ) -> impl IntoElement {
+    let solid = tone == IconTone::Quiet;
     button()
         .role(AccessibilityRole::Button)
         .accessibility_label(label)
@@ -36,20 +49,16 @@ pub fn icon_button(
         .flex_row()
         .items_center()
         .justify_center()
-        .bg(move || {
-            if selected() {
-                ACCENT_GOLD_BG
-            } else {
-                theme().secondary
-            }
+        .bg(move || match (selected(), solid) {
+            (true, _) => ACCENT_GOLD_BG,
+            (false, true) => theme().secondary,
+            (false, false) => AdaptiveColor::TRANSPARENT,
         })
         .border_1()
-        .border_color(move || {
-            if selected() {
-                ACCENT_GOLD
-            } else {
-                theme().border
-            }
+        .border_color(move || match (selected(), solid) {
+            (true, _) => ACCENT_GOLD,
+            (false, true) => theme().border,
+            (false, false) => AdaptiveColor::TRANSPARENT,
         })
         .hover(move |s| {
             s.bg(move || {
@@ -61,7 +70,7 @@ pub fn icon_button(
             })
         })
         .active(|s| s.scale(0.94).opacity(0.88))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .disabled_style(|s| s.opacity(0.35))
         .transition_transform()
         .transition_colors()
@@ -104,7 +113,7 @@ pub fn action_button(
             ActionTone::Accent => s.opacity(0.92),
         })
         .active(|s| s.scale(0.92).opacity(0.85))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .disabled_style(|s| s.opacity(0.35))
         .transition_transform()
         .transition_colors()
@@ -168,8 +177,10 @@ pub fn micro_button(
         .border_color(move || theme().border)
         .hover(move |s| s.bg(move || theme().secondary))
         .active(|s| s.scale(0.96).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(
             text(label)
@@ -177,7 +188,7 @@ pub fn micro_button(
                 .text_color(move || theme().muted_foreground),
         )
 }
-/// 数字微调按钮：20×20 的「−」「+」，贴在输入框两侧。
+/// 数字微调按钮：24×24 的「−」「+」，和它两侧的输入框同高。
 pub fn step_button(
     label: &'static str,
     sign: &'static str,
@@ -186,9 +197,9 @@ pub fn step_button(
     button()
         .role(AccessibilityRole::Button)
         .accessibility_label(label)
-        .w(px(size::CONTROL_SM))
-        .h(px(size::CONTROL_SM))
-        .rounded(px(radius::SM))
+        .w(px(size::CONTROL_MD))
+        .h(px(size::CONTROL_MD))
+        .rounded(px(radius::LG))
         .flex_row()
         .items_center()
         .justify_center()
@@ -197,8 +208,10 @@ pub fn step_button(
         .border_color(move || theme().border)
         .hover(move |s| s.bg(move || theme().muted))
         .active(|s| s.scale(0.94).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(
             text(sign)
@@ -235,12 +248,14 @@ pub fn text_button(
                 .bg(move || if primary { ACCENT_GOLD } else { theme().muted })
         })
         .active(|s| s.scale(0.97).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(
             text(label)
-                .text_size(px(if primary { font::BODY } else { font::CAPTION }))
+                .text_size(px(font::BODY))
                 .text_color(move || {
                     if primary {
                         ACCENT_GOLD_FG
@@ -267,12 +282,14 @@ pub fn undo_button(label: &'static str, on_press: impl Fn() + 'static) -> impl I
         .border_color(move || ACCENT_GOLD)
         .hover(move |s| s.opacity(0.92))
         .active(|s| s.scale(0.95).opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(
             text(label)
-                .text_size(px(font::CAPTION))
+                .text_size(px(font::LABEL))
                 .text_color(move || ACCENT_GOLD_FG),
         )
 }

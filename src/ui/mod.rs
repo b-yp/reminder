@@ -5,24 +5,33 @@
 //! 分工：`nsh/base` 给行为（角色、键盘、焦点、选中态）；这一层给外观；
 //! 页面只给布局（宽高、间距、对齐）。
 
+mod animate;
 mod badge;
 mod button;
 mod choice;
 mod disclosure;
+mod field;
+mod focus;
 mod menu;
 mod preset;
 mod progress;
 mod switch;
 pub mod tokens;
 
+pub use animate::animate_rows;
 pub use badge::{BadgeTone, status_badge};
 pub use button::{
-    ActionTone, action_button, dynamic_tooltip_bubble, icon_button, micro_button, step_button,
-    text_button, tooltip_bubble, undo_button,
+    ActionTone, IconTone, action_button, dynamic_tooltip_bubble, icon_button, micro_button,
+    step_button, text_button, tooltip_bubble, undo_button,
 };
-pub use choice::{choice_chip, choice_grid, choice_group, icon_choice, segment_toggle};
+pub use choice::{
+    choice_chip, choice_grid, choice_group, choice_group_wrap, icon_choice, segment_toggle,
+};
 pub use disclosure::disclosure_row;
+pub use field::text_field;
+pub use focus::focus_ring;
 pub use menu::row_menu;
 pub use preset::preset_card;
 pub use progress::progress_bar;
 pub use switch::setting_switch;
+

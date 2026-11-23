@@ -3,12 +3,12 @@
 
 use chrono::Timelike;
 use nsh_base::{TimeOfDay, theme, time_field};
-use nsh_core::element::input;
 use nsh_core::prelude::*;
 
 use crate::constants::{MINUTE_CHIPS, TIME_CHIPS};
-use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_STRONG};
+use crate::theme_mode::{ACCENT_GOLD_STRONG, FIELD_BORDER};
 use crate::ui;
+use crate::ui::tokens::{font, radius, size};
 
 /// 自定义提醒的「循环周期 / 每天定点」切换按钮
 pub(super) fn schedule_mode_button(
@@ -45,7 +45,7 @@ pub(super) fn render_interval_fields(
                 .justify_between()
                 .child(
                     text("循环周期")
-                        .text_size(px(11.0))
+                        .text_size(px(font::LABEL))
                         .text_color(move || theme().muted_foreground),
                 )
                 .child(
@@ -61,28 +61,21 @@ pub(super) fn render_interval_fields(
                                 error_tip.set(None);
                             }))
                             .child(
-                                input()
-                                    .placeholder("30")
-                                    .value(move || custom_mins_str.get())
-                                    .label("循环周期分钟数")
-                                    .on_change(move |s: &str| {
-                                        let digits: String = s
+                                view().w(px(48.0)).child(ui::text_field(
+                                    "循环周期分钟数",
+                                    "custom-mins-input",
+                                    "30",
+                                    move || custom_mins_str.get(),
+                                    move |text: &str| {
+                                        let digits: String = text
                                             .chars()
                                             .filter(|c| c.is_ascii_digit())
                                             .take(4)
                                             .collect();
                                         custom_mins_str.set(digits);
                                         error_tip.set(None);
-                                    })
-                                    .w(px(38.0))
-                                    .h(px(20.0))
-                                    .px(px(4.0))
-                                    .rounded(px(3.0))
-                                    .bg(move || theme().background)
-                                    .border_1()
-                                    .border_color(ACCENT_GOLD)
-                                    .text_size(px(11.0))
-                                    .text_color(ACCENT_GOLD_STRONG),
+                                    },
+                                )),
                             )
                             .child(ui::step_button("增加 1 分钟", "+", move || {
                                 let cur = custom_mins_str.get().parse::<u32>().unwrap_or(30);
@@ -92,19 +85,18 @@ pub(super) fn render_interval_fields(
                     ),
                 ),
         )
-        // 快捷填入：一组互斥的 toggle（方向键可在组内移动）
+        // 快捷填入：一组互斥的 toggle（方向键可在组内移动）；放不下时折行，
+        // 不会被卡片右边缘裁掉。
         .child(
             view()
-                .flex_row()
-                .items_center()
-                .justify_between()
+                .flex_col()
                 .gap(px(3.0))
                 .child(
-                    text("快捷填入:")
-                        .text_size(px(10.5))
+                    text("快捷填入")
+                        .text_size(px(font::CAPTION))
                         .text_color(move || theme().muted_foreground),
                 )
-                .child(ui::choice_group(MINUTE_CHIPS.iter().map(
+                .child(ui::choice_group_wrap(MINUTE_CHIPS.iter().map(
                     |&(label, mins)| {
                         ui::choice_chip(
                             label,
@@ -138,7 +130,7 @@ pub(super) fn render_daily_fields(
                 .justify_between()
                 .child(
                     text("每天提醒时间")
-                        .text_size(px(11.0))
+                        .text_size(px(font::LABEL))
                         .text_color(move || theme().muted_foreground),
                 )
                 .child(
@@ -154,32 +146,32 @@ pub(super) fn render_daily_fields(
                                 custom_minute_str.set(format!("{:02}", value.0.minute()));
                                 error_tip.set(None);
                             })
-                            .w(px(72.0))
-                            .h(px(24.0))
-                            .rounded(px(3.0))
+                            .w(px(76.0))
+                            .h(px(size::CONTROL_MD))
+                            .px(px(8.0))
+                            .rounded(px(radius::LG))
                             .bg(move || theme().background)
                             .border_1()
-                            .border_color(ACCENT_GOLD)
-                            .segment_style(|s| s.text_size(px(11.0)).text_color(ACCENT_GOLD_STRONG))
+                            .border_color(move || FIELD_BORDER)
+                            .focus_visible(ui::focus_ring)
+                            .segment_style(|s| s.text_size(px(font::BODY)).text_color(ACCENT_GOLD_STRONG))
                             .separator_style(|s| {
-                                s.text_size(px(11.0)).text_color(ACCENT_GOLD_STRONG)
+                                s.text_size(px(font::BODY)).text_color(ACCENT_GOLD_STRONG)
                             }),
                     ),
                 ),
         )
-        // 常用定点时刻：同样是一组互斥 toggle
+        // 常用定点时刻：同样是一组互斥 toggle，放不下时折行
         .child(
             view()
-                .flex_row()
-                .items_center()
-                .justify_between()
+                .flex_col()
                 .gap(px(3.0))
                 .child(
-                    text("常用时刻:")
-                        .text_size(px(10.5))
+                    text("常用时刻")
+                        .text_size(px(font::CAPTION))
                         .text_color(move || theme().muted_foreground),
                 )
-                .child(ui::choice_group(TIME_CHIPS.iter().map(
+                .child(ui::choice_group_wrap(TIME_CHIPS.iter().map(
                     |&(label, hour, minute)| {
                         ui::choice_chip(
                             label,

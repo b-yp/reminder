@@ -8,6 +8,7 @@ use crate::app::AppCtx;
 use crate::icons;
 use crate::localtime;
 use crate::theme_mode::{ACCENT_GOLD_STRONG, OVERDUE_FG};
+use crate::ui::tokens::font;
 use crate::ui;
 
 /// 迷你胶囊挂件形态（Mini Pill / Dynamic Island）：仅 220x44 像素，支持全屏自由拖动、显示最优先提醒、一键完成打卡与一键展开
@@ -108,7 +109,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                             "暂无提醒".to_string()
                                         }
                                     })
-                                    .text_size(px(12.0))
+                                    .text_size(px(font::BODY))
                                     .text_color(move || theme().foreground)
                                     .truncate(),
                                 )
@@ -130,7 +131,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                             })
                                         })
                                         .flex_shrink_0()
-                                        .text_size(px(10.5))
+                                        .text_size(px(font::CAPTION))
                                         .text_color(move || theme().muted_foreground)
                                     },
                                 )),
@@ -151,7 +152,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                         "--:--".to_string()
                                     }
                                 })
-                                .text_size(px(11.0))
+                                .text_size(px(font::LABEL))
                                 .text_color(move || {
                                     if is_all_paused.get() {
                                         theme().muted_foreground
@@ -180,11 +181,8 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                     view()
                         .child(ui::icon_button(
                             "打卡完成",
-                            move || {
-                                active_item_info.with(|info| {
-                                    info.as_ref().map_or(false, |(_, it, _)| it.is_expired())
-                                })
-                            },
+                            ui::IconTone::Quiet,
+                            || false,
                             move || active_item_info.get().is_none(),
                             move || {
                                 if let Some((idx, _, _)) = active_item_info.get() {
@@ -209,6 +207,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                         .test_id("expand-mini-btn")
                         .child(ui::icon_button(
                             "展开为卡片",
+                            ui::IconTone::Quiet,
                             || false,
                             || false,
                             on_expand,

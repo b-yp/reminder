@@ -3,15 +3,23 @@
 // (`nsh.json` "root").
 import { expect, open, test } from "nsh/test";
 
-test("renders reminder app", async () => {
+test("renders reminder app and adds a reminder", async () => {
   const app = await open(".");
   // If the app is currently in mini capsule mode, expand to full card
   if (!app.texts().includes("reminder 提醒")) {
     await app.press("role:button[展开为卡片]");
   }
   expect(app.texts()).toContain("reminder 提醒");
-  expect(app.texts()).toContain("喝水");
-  expect(app.texts()).toContain("起身活动");
+
+  // 不依赖用户已有的提醒：自己建一条短名字的提醒，再看它是否出现在列表里
+  const name = `测试${Date.now() % 100000}`;
+  await app.press("role:button[新建提醒]");
+  await app.waitFor("role:button[自定义新提醒]");
+  await app.press("role:button[自定义新提醒]");
+  await app.type("custom-name", name);
+  await app.press("role:button[开启提醒]");
+  await app.waitFor(`text:${name}`);
+  expect(app.texts()).toContain(name);
 });
 
 test("shows the global hotkey in the settings drawer", async () => {
@@ -55,7 +63,7 @@ test("offers fixed-time daily reminders in the custom form", async () => {
   // 切到「每天定点」：出现时:分编辑与常用定点时刻
   await app.press("role:button[每天定点]");
   await app.waitFor("text:每天提醒时间");
-  await app.waitFor("text:常用时刻:");
+  await app.waitFor("text:常用时刻");
   const texts = app.texts();
   expect(texts).toContain("每天提醒时间");
   // 用户示例里的 12:00 午餐、18:30 下班打卡、23:00 睡觉都能一键填入
@@ -65,7 +73,7 @@ test("offers fixed-time daily reminders in the custom form", async () => {
 
   // 切回循环周期，原来的分钟快捷填入还在
   await app.press("role:button[循环周期]");
-  await app.waitFor("text:快捷填入:");
+  await app.waitFor("text:快捷填入");
   expect(app.texts()).toContain("循环周期");
 });
 
@@ -94,7 +102,7 @@ test("clears the add drawer's tab and draft when reopened", async () => {
   await app.press("role:button[自定义新提醒]");
   await app.waitFor("text:提醒事项名称");
   expect(app.value("custom-name")).toBe("");
-  expect(app.texts()).toContain("快捷填入:");
+  expect(app.texts()).toContain("快捷填入");
   expect(app.texts()).not.toContain("每天提醒时间");
 });
 
