@@ -11,6 +11,7 @@ use nsh_core::prelude::*;
 use crate::alarm::{alarm_label, trigger_reminder_alarm};
 use crate::constants::LOGO;
 use crate::hotkey::{self, HotkeyStatus};
+use crate::updater::{self, Status};
 
 use super::AppCtx;
 
@@ -22,6 +23,7 @@ pub fn install(app: AppCtx) {
     install_opacity_effect(app);
     install_hotkey_effect(app);
     install_tick(app);
+    install_update(app);
 }
 
 /// 系统托盘：左键唤回窗口，右键菜单是唯一真正的退出入口。
@@ -180,4 +182,105 @@ fn install_tick(app: AppCtx) {
             app.save();
         }
     })));
+}
+
+/// 应用更新：后台线程的消息回到引擎线程、启动后静默查一次、退出应用时替换。
+///
+/// 取清单、下载、校验、解包都在 `updater` 自己的线程里跑；这里只按 100ms 排空结果，
+/// 提醒的每秒心跳不会被网络拖慢。替换发生在退出时（托盘的「退出」、⌘Q、系统注销都走
+/// 同一条路），所以点击「退出并更新」和平时退出对用户是同一件事。
+fn install_update(app: AppCtx) {
+    // 开发运行没有打包配置，也就没有可替换的安装：不连管道、不查网络
+    if matches!(app.update.get(), Status::Unavailable) {
+        return;
+    }
+
+    let events = stored(Some(updater::connect()));
+    // 已解包校验、摆在应用旁边的新版本：留住它，Drop 会把摆好的目录删掉
+    let staged = stored(None::<nsh_updater::install::Staged>);
+    // 排空定时器自己也要留住：`Spawned` 一丢，任务就取消了
+    let pump = stored(None::<Spawned<()>>);
+
+    // 上次替换没删掉的旧文件在这里清掉：一启动就做，不依赖这次有没有联网
+    updater::clean_leftovers();
+
+    // 只在检查 / 下载时开 100ms 的排空定时器：空闲的挂件不该每秒醒十次
+    effect(move || {
+        let status = app.update.get();
+        // 用户点了「重启并更新」：现在换文件，换完让应用自己拉起新版本
+        if matches!(status, Status::Installing) {
+            match staged.try_with(|slot| slot.take()).flatten() {
+                Some(pending) => match updater::install_now(pending) {
+                    Ok(()) => nsh_core::element::desktop::restart(),
+                    Err(message) => app.update.set(Status::Failed(message)),
+                },
+                // 理论上到不了：Ready 只会在刚摆好新版本时出现
+                None => app.update.set(Status::Failed("更新文件已失效，请重新下载".to_owned())),
+            }
+            return;
+        }
+        let busy = status.is_busy();
+        let running = pump.with(|slot| slot.is_some());
+        if busy && !running {
+            pump.replace(Some(set_interval(Duration::from_millis(100), move || {
+                events.with(|slot| {
+                    let Some(events) = slot.as_ref() else {
+                        return;
+                    };
+                    loop {
+                        match events.try_recv() {
+                            Ok(updater::Event::Checked(result)) => match result {
+                                Ok(Some(found)) => app.update.set(Status::Available(found)),
+                                Ok(None) => app.update.set(Status::UpToDate),
+                                Err(message) => app.update.set(Status::Failed(message)),
+                            },
+                            Ok(updater::Event::Progress { received, total }) => {
+                                // 用户中途又点了一次检查时，旧的下载进度不该覆盖新状态
+                                if let Status::Downloading { version, .. } = app.update.get() {
+                                    app.update.set(Status::Downloading {
+                                        version,
+                                        received,
+                                        total,
+                                    });
+                                }
+                            }
+                            Ok(updater::Event::Staged(result)) => match result {
+                                Ok((new, version)) => {
+                                    staged.replace(Some(new));
+                                    app.update.set(Status::Ready { version });
+                                }
+                                Err(message) => app.update.set(Status::Failed(message)),
+                            },
+                            Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                            // 管道断了（理论上只在进程退出时）：不必空转
+                            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                        }
+                    }
+                });
+            })));
+        } else if !busy && running
+            && let Some(timer) = pump.with(|slot| slot.take())
+        {
+            timer.cancel();
+        }
+    });
+
+    // 启动后静默查一次：只把结果留在状态里，不弹窗、不抢焦点
+    let startup = stored(None::<Spawned<()>>);
+    startup.replace(Some(set_timeout(Duration::from_secs(15), move || {
+        if matches!(app.update.get(), Status::Idle) {
+            app.check_update();
+        }
+    })));
+
+    // 退出时替换：界面已经收起、数据已经落盘，这里只做一次很快的目录 / 文件替换
+    desktop::on_app_quit(move || {
+        let pending = staged.try_with(|slot| slot.take()).flatten();
+        if let Some(pending) = pending
+            && let Err(error) = updater::install_at_quit(pending)
+        {
+            eprintln!("[reminder] 退出时更新失败：{error}");
+        }
+        async {}
+    });
 }

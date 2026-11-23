@@ -11,6 +11,7 @@ mod choice;
 mod disclosure;
 mod menu;
 mod preset;
+mod progress;
 mod switch;
 pub mod tokens;
 
@@ -23,4 +24,5 @@ pub use choice::{choice_chip, choice_grid, choice_group, icon_choice, segment_to
 pub use disclosure::disclosure_row;
 pub use menu::row_menu;
 pub use preset::preset_card;
+pub use progress::progress_bar;
 pub use switch::setting_switch;

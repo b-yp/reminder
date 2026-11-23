@@ -17,6 +17,7 @@ use crate::storage::AppState;
 #[cfg(not(test))]
 use crate::storage::persist_current;
 use crate::theme_mode::ThemeMode;
+use crate::updater;
 
 /// 刚删除、还留在底部撤销窗口里的提醒（窗口关闭后即为最终删除）。
 #[derive(Clone, PartialEq)]
@@ -55,11 +56,23 @@ pub struct AppCtx {
     pub is_toast_hovered: Signal<bool>,
     /// 每秒推进的时钟，驱动撤销条上的倒计时。
     pub clock: Signal<u64>,
+    /// 应用更新：检查 / 下载 / 退出时替换的状态
+    pub update: Signal<updater::Status>,
+    /// 当前版本：以打包进应用的那份配置为准（开发运行退回 crate 版本）
+    pub update_version: Signal<String>,
 }
 
 impl AppCtx {
     /// 从持久化状态创建全部信号；`AppState` 里的数据在这里被接管一次。
     pub fn new(state: AppState) -> Self {
+        // 更新配置只认打包时写进资源目录的那份：开发运行没有它，也就没有可替换的安装
+        let (update, update_version) = match updater::bundled() {
+            Some((_, config)) => (updater::Status::Idle, config.version),
+            None => (
+                updater::Status::Unavailable,
+                env!("CARGO_PKG_VERSION").to_owned(),
+            ),
+        };
         Self {
             items: signal(state.items),
             is_all_paused: signal(state.is_all_paused),
@@ -79,6 +92,8 @@ impl AppCtx {
             pending_delete: signal(Option::<PendingDelete>::None),
             is_toast_hovered: signal(false),
             clock: signal(localtime::unix_now()),
+            update: signal(update),
+            update_version: signal(update_version),
         }
     }
 
@@ -209,5 +224,48 @@ impl AppCtx {
             ..Default::default()
         });
         self.save();
+    }
+
+    /// 检查更新：同一时间只跑一个；没有打包配置（开发运行）时不做任何事。
+    /// 已经下载好等退出替换时也不再检查，免得把「待更新」刷掉。
+    pub fn check_update(&self) {
+        let status = self.update.get();
+        if status.is_busy()
+            || matches!(
+                status,
+                updater::Status::Unavailable | updater::Status::Ready { .. }
+            )
+        {
+            return;
+        }
+        self.update.set(updater::Status::Checking);
+        updater::start_check();
+    }
+
+    /// 下载新版本：下载、按清单校验，解包摆到应用旁边，退出时替换。
+    /// 装不进去的目录（只读、系统包）不下载，界面给的是下载页。
+    pub fn download_update(&self) {
+        let updater::Status::Available(found) = self.update.get() else {
+            return;
+        };
+        if !found.can_install {
+            return;
+        }
+        self.update.set(updater::Status::Downloading {
+            version: found.version.clone(),
+            received: 0,
+            total: found.size,
+        });
+        updater::start_download(found);
+    }
+
+    /// 已经下载好时点它：立刻替换并重启，应用自己拉起新版本。
+    /// 什么都不点也没关系——退出应用时同样会替换。
+    pub fn restart_and_update(&self) {
+        if !matches!(self.update.get(), updater::Status::Ready { .. }) {
+            return;
+        }
+        // 真正的替换由 `state::install_update` 的副作用做：它拿着已经摆好的新版本
+        self.update.set(updater::Status::Installing);
     }
 }

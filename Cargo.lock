@@ -1887,8 +1887,10 @@ dependencies = [
  "nsh-platform-macos",
  "nsh-platform-windows",
  "nsh-testing",
+ "nsh-updater",
  "serde",
  "serde_json",
+ "ureq",
  "windows-sys 0.61.2",
 ]
 

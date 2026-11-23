@@ -4,7 +4,8 @@
 //! 随意拖拽、矢量环形进度图标、全局热键一键隐藏 / 呼出悬浮窗、关闭收进托盘继续提醒、登录系统自动启动。
 //!
 //! 结构：`app`（根组件 + 状态上下文 + 应用级副作用）、`views`（纯外观组合）、
-//! `window`（平台窗口层）、`ui`（控件外观层），以及 `model` / `storage` / `hotkey` 等领域模块。
+//! `window`（平台窗口层）、`ui`（控件外观层），以及 `model` / `storage` / `hotkey` / `updater`
+//! 等领域模块。
 
 mod alarm;
 mod app;
@@ -19,6 +20,7 @@ pub(crate) mod presets;
 pub mod storage;
 pub mod theme_mode;
 pub mod ui;
+pub mod updater;
 pub(crate) mod views;
 mod window;
 

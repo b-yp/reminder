@@ -9,6 +9,10 @@ publish = false
 [dependencies]
 nsh-core = "0.6.0"
 nsh-base = "0.6.0"
+# 自更新：清单与压缩包的校验、替换已安装的应用（更新源在 nsh.json 里，不在代码里）
+nsh-updater = "0.6.0"
+# 取清单与压缩包：与 nsh-core 用同一个 TLS 栈（系统证书）与版本，不引入新的 TLS 实现
+ureq = { version = "3.1", features = ["platform-verifier"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 notify-rust = "4.19.0"
 serde = { version = "1.0", features = ["derive"] }
