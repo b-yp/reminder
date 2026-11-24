@@ -146,20 +146,7 @@ fn install_tick(app: AppCtx) {
             }
         }
 
-        // 2. 撤销窗口：时钟推进；到期只收起提示（删除早已落盘）
-        app.clock.set(crate::localtime::unix_now());
-        if let Some(mut pending) = app.pending_delete.get() {
-            if app.is_toast_hovered.get() {
-                // 鼠标悬停在 Toast 上时顺延 deadline，暂停倒计时
-                pending.deadline = pending.deadline.saturating_add(1);
-                app.pending_delete.set(Some(pending));
-            } else if crate::localtime::unix_now() >= pending.deadline {
-                // 到点：先播退场动画，`leave_toast` 播完再卸载
-                app.leave_toast();
-            }
-        }
-
-        // 3. 倒计时与提醒驱动（定点提醒按本地墙钟判断，间隔提醒逐秒递减）
+        // 2. 倒计时与提醒驱动（定点提醒按本地墙钟判断，间隔提醒逐秒递减）
         let mut state_changed = pos_changed;
         if !app.is_all_paused.get() {
             let now = crate::localtime::now();

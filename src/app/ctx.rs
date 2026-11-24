@@ -5,15 +5,13 @@
 //! 写操作也收敛成方法（`app.save()`、`app.delete(id)`、`app.enter_mini()`），
 //! 行为只有一份，界面代码只负责组合控件。
 
+use nsh_base::{ToastManager, ToastMotion, ToastOptions, ToastStackState, ToastTransitionStatus};
 use nsh_core::desktop::{WindowFrame, WindowPlacement};
 use nsh_core::element::desktop;
 use nsh_core::prelude::*;
 
-use crate::constants::{
-    MINI_HEIGHT, MINI_WIDTH, TOAST_EXIT_MS, UNDO_SECONDS, WINDOW_HEIGHT, WINDOW_WIDTH,
-};
+use crate::constants::{MINI_HEIGHT, MINI_WIDTH, UNDO_SECONDS, WINDOW_HEIGHT, WINDOW_WIDTH};
 use crate::hotkey::{self, HotkeyStatus};
-use crate::localtime;
 use crate::model::{ReminderItem, undo_restore_item};
 use crate::storage::AppState;
 #[cfg(not(test))]
@@ -21,13 +19,22 @@ use crate::storage::persist_current;
 use crate::theme_mode::ThemeMode;
 use crate::updater;
 
-/// 刚删除、还留在底部撤销窗口里的提醒（窗口关闭后即为最终删除）。
+/// 刚删除、还留在底部撤销 Toast 里的提醒（窗口关闭后即为最终删除）。
 #[derive(Clone, PartialEq)]
 pub struct PendingDelete {
     pub item: ReminderItem,
     pub prev_id: Option<u64>,
     pub next_id: Option<u64>,
-    pub deadline: u64,
+    pub remaining_ms: std::rc::Rc<std::cell::Cell<u64>>,
+}
+
+/// 撤销 Toast 的运动参数：退场时长与卡片自己的 transition（`motion::BASE`）对齐，
+/// 否则 manager 会在退场动画播完之前就把卡片卸载（`ToastMotion::sonner()` 默认是 200ms）。
+pub fn toast_motion() -> ToastMotion {
+    ToastMotion {
+        exit_duration: std::time::Duration::from_millis(crate::ui::tokens::motion::BASE as u64),
+        ..ToastMotion::sonner()
+    }
 }
 
 /// 应用的响应式状态：一个值就能交给任何视图。
@@ -52,16 +59,14 @@ pub struct AppCtx {
     /// 空列表入口请求「新建」抽屉复位一次：抽屉已经打开时 `show_add.set(true)` 是空操作，
     /// 靠这个 tick 把页签和草稿强制拉回干净首屏。
     pub add_reset: Signal<u64>,
-    /// 删除后的撤销窗口：同时只保留一条，新的删除会让上一条直接转正。
-    pub pending_delete: Signal<Option<PendingDelete>>,
-    /// 撤销条正在退场：内容还在，播完 `ending` 动画再卸载。
-    pub toast_leaving: Signal<bool>,
-    /// 退场序号：新的删除会让上一次还没跑完的退场回调失效。
-    toast_leave_seq: Signal<u64>,
-    /// 鼠标是否悬停在撤销 Toast 上（悬停时暂停倒计时）。
-    pub is_toast_hovered: Signal<bool>,
-    /// 每秒推进的时钟，驱动撤销条上的倒计时。
-    pub clock: Signal<u64>,
+    /// 官方 ToastStack 状态：记录卡片堆是否被鼠标悬停 / 触碰展开
+    pub toast_stack_state: ToastStackState,
+    /// 官方 ToastManager：负责卡片堆的层叠生命周期、自动超时与进退场
+    pub toast_manager: Stored<ToastManager<u64, PendingDelete>>,
+    /// 当前可见的前 3 条 Toast（id, PendingDelete, 进退场状态）
+    pub toast_entries: Signal<Vec<(u64, PendingDelete, ToastTransitionStatus)>>,
+    /// 倒计时时钟脉冲（驱动卡片上的倒计时数字与细微进度条平滑动画）
+    pub toast_tick: Signal<u64>,
     /// 应用更新：检查 / 下载 / 退出时替换的状态
     pub update: Signal<updater::Status>,
     /// 当前版本：以打包进应用的那份配置为准（开发运行退回 crate 版本）
@@ -95,11 +100,10 @@ impl AppCtx {
             show_add: signal(false),
             show_settings: signal(false),
             add_reset: signal(0u64),
-            pending_delete: signal(Option::<PendingDelete>::None),
-            toast_leaving: signal(false),
-            toast_leave_seq: signal(0u64),
-            is_toast_hovered: signal(false),
-            clock: signal(localtime::unix_now()),
+            toast_stack_state: ToastStackState::new(),
+            toast_manager: stored(ToastManager::<u64, PendingDelete>::new(toast_motion())),
+            toast_entries: signal(Vec::new()),
+            toast_tick: signal(0u64),
             update: signal(update),
             update_version: signal(update_version),
         }
@@ -116,7 +120,6 @@ impl AppCtx {
         self.persist();
     }
 
-    /// 真正的落盘（生产构建；测试里由 [`AppCtx::save`] 短路）。
     #[cfg(not(test))]
     fn persist(&self) {
         let win_placement = desktop::main_window()
@@ -135,7 +138,7 @@ impl AppCtx {
         );
     }
 
-    /// 删除：立刻从列表移除并落盘，把副本交给底部撤销条。
+    /// 删除：立刻从列表移除并落盘，把副本加入层叠 ToastStack。
     pub fn delete(&self, id: u64) {
         let mut removed = None;
         crate::ui::animate_rows();
@@ -156,57 +159,78 @@ impl AppCtx {
             }
         });
         if let Some((prev_id, next_id, item)) = removed {
-            self.is_toast_hovered.set(false);
-            // 上一条撤销条还没退场完就被新的删除顶掉：让旧回调失效
-            self.toast_leave_seq.update(|seq| *seq = seq.wrapping_add(1));
-            self.toast_leaving.set(false);
-            self.pending_delete.set(Some(PendingDelete {
+            let item_id = item.id;
+            let pending = PendingDelete {
                 item,
                 prev_id,
                 next_id,
-                deadline: localtime::unix_now() + UNDO_SECONDS,
-            }));
-            self.save();
-        }
-    }
-
-    /// 撤销：按原相对位置插回并重新落盘，然后让撤销条退场。
-    pub fn undo(&self) {
-        if let Some(pending) = self.pending_delete.get() {
-            crate::ui::animate_rows();
-            self.items.update(|list| {
-                undo_restore_item(list, pending.item.clone(), pending.prev_id, pending.next_id);
+                remaining_ms: std::rc::Rc::new(std::cell::Cell::new(UNDO_SECONDS * 1000)),
+            };
+            self.toast_manager.with(|m| {
+                m.push(
+                    item_id,
+                    pending,
+                    ToastOptions::timeout(Some(std::time::Duration::from_secs(UNDO_SECONDS))),
+                    nsh_core::time::now(),
+                );
             });
+            self.sync_toasts();
             self.save();
-            self.leave_toast();
         }
     }
 
-    /// 手动关闭 / 滑走撤销 Toast：先播退场动画，再卸载。
-    pub fn dismiss_toast(&self) {
-        self.leave_toast();
-    }
-
-    /// 撤销条退场：内容留在树上播完 `ending`（`motion::BASE`），到点再清空。
-    /// 序号保证「退场途中又删了一条」时，旧回调不会把新的一条提前清掉。
-    pub(super) fn leave_toast(&self) {
-        if self.pending_delete.get().is_none() {
+    /// 撤销指定的被删提醒（按原相对位置插回并重新落盘，随后该 Toast 卡片退场）。
+    pub fn undo(&self, id: u64) {
+        let pending = self.toast_manager.with(|m| {
+            let pending = m.get(&id).cloned()?;
+            // 只有还在正常显示的卡片能恢复一次。`dismiss` 对已经进入退场
+            // （撤销过 / 被划走 / 已到期）的卡片返回 false：它在 manager 里
+            // 还要留到退场动画播完，这期间重复点击不能把同一条提醒插两遍。
+            m.dismiss(&id, nsh_core::time::now()).then_some(pending)
+        });
+        let Some(pending) = pending else {
             return;
+        };
+        crate::ui::animate_rows();
+        self.items.update(|list| {
+            // 兜底：列表里已经有同 id 的提醒就不再插一次。
+            if list.iter().all(|x| x.id != pending.item.id) {
+                undo_restore_item(list, pending.item.clone(), pending.prev_id, pending.next_id);
+            }
+        });
+        self.save();
+        self.sync_toasts();
+    }
+
+    /// 撤销最新的一项（例如 Escape 键或快捷键）
+    pub fn undo_latest(&self) {
+        let latest = self
+            .toast_entries
+            .get()
+            .iter()
+            .rev()
+            .find(|(_, _, s)| *s != ToastTransitionStatus::Ending)
+            .map(|(id, _, _)| *id);
+        if let Some(id) = latest {
+            self.undo(id);
         }
-        let seq = self.toast_leave_seq.get().wrapping_add(1);
-        self.toast_leave_seq.set(seq);
-        self.is_toast_hovered.set(false);
-        self.toast_leaving.set(true);
-        let app = *self;
-        set_timeout(
-            std::time::Duration::from_millis(TOAST_EXIT_MS),
-            move || {
-                if app.toast_leave_seq.get() == seq {
-                    app.pending_delete.set(None);
-                    app.toast_leaving.set(false);
-                }
-            },
-        );
+    }
+
+    /// 划走或关闭指定的 Toast
+    pub fn dismiss_toast(&self, id: u64) {
+        self.toast_manager.with(|m| {
+            m.dismiss(&id, nsh_core::time::now());
+        });
+        self.sync_toasts();
+    }
+
+    /// 同步最新的可见 Toast 列表
+    pub fn sync_toasts(&self) {
+        self.toast_entries.set(self.toast_manager.with(|m| {
+            m.visible(3)
+                .map(|(id, item, status)| (*id, item.clone(), status))
+                .collect::<Vec<_>>()
+        }));
     }
 
     /// 展开「新建提醒」抽屉（收起设置抽屉，并强制复位草稿）。

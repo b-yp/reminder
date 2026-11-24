@@ -6,7 +6,8 @@
 mod ctx;
 mod state;
 
-pub use ctx::{AppCtx, PendingDelete};
+#[allow(unused_imports)]
+pub use ctx::{AppCtx, PendingDelete, toast_motion};
 
 use nsh_base::theme;
 use nsh_core::desktop::WindowFrame;
