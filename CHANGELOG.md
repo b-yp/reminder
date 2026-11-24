@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/b-yp/reminder/compare/v0.3.1...v0.4.0) (2026-11-24)
+
+
+### Features
+
+* stack undo toasts on consecutive deletions ([831d7b8](https://github.com/b-yp/reminder/commit/831d7b8fcd6e43c00d4d949d9e9750aa31cbc68e))
+* stack undo toasts on consecutive deletions ([466cde5](https://github.com/b-yp/reminder/commit/466cde56e0cbf6cd96d9b9073075b4b3269f55e5))
+
 ## [0.3.1](https://github.com/b-yp/reminder/compare/v0.3.0...v0.3.1) (2026-11-24)
 
 
