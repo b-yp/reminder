@@ -1,5 +1,5 @@
 //! 完整卡片形态（320×350）：顶栏 + 可滚动内容区（新建抽屉 / 设置抽屉 / 提醒列表）
-//! + 底栏状态行 + 底部撤销 Toast。
+//! + 底栏状态行 + 底部撤销 ToastStack。
 
 use nsh_core::prelude::*;
 
@@ -8,12 +8,6 @@ use crate::ui::tokens::space;
 use crate::views::{add_drawer, footer, header, list, settings, toast};
 
 pub fn render(app: AppCtx) -> impl IntoElement {
-    let AppCtx {
-        pending_delete,
-        toast_leaving,
-        ..
-    } = app;
-
     view()
         .relative()
         .w_full()
@@ -47,14 +41,6 @@ pub fn render(app: AppCtx) -> impl IntoElement {
         // 3. 底部状态行（「进行中 X 项 · 今日打卡 Y 次」，若处于半透明状态则额外指示不透明度；
         //    常态下右侧显示全局热键，提示一键隐藏 / 呼出）
         .child(footer::render(app))
-        // 4. 底部浮层撤销 Toast（当存在 pending_delete 时在底栏上方优雅浮现，
-        //    退场时先播 240ms 的 ending 再卸载）
-        .child(when(
-            move || pending_delete.get().is_some(),
-            move || {
-                pending_delete
-                    .get()
-                    .map(|pending| toast::render(app, pending, toast_leaving.get()))
-            },
-        ))
+        // 4. 底部多层堆叠撤销 ToastStack（Sonner / 官方原生多卡片层叠，悬停展开为列表）
+        .child(toast::render(app))
 }
