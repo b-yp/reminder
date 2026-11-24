@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/b-yp/reminder/compare/v0.3.0...v0.3.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* keep download progress alive on slow links ([baafae0](https://github.com/b-yp/reminder/commit/baafae0e45d97d03f8aca5965fcf6890ecf9b5ea))
+* keep download progress alive on slow links ([b6c2433](https://github.com/b-yp/reminder/commit/b6c24336df276702eccfa86b1975bd33e28b4b67))
+
 ## [0.3.0](https://github.com/b-yp/reminder/compare/v0.2.0...v0.3.0) (2026-11-24)
 
 
