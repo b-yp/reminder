@@ -25,8 +25,16 @@ use crate::APP_ID;
 const MANIFEST_LIMIT: u64 = 2 * 1024 * 1024;
 /// 压缩包的大小上限：清单给了 size 时以它为准，这里只是兜底
 const ARCHIVE_LIMIT: u64 = 512 * 1024 * 1024;
-/// 单次请求的最长时间
-const TIMEOUT: Duration = Duration::from_secs(60);
+/// 建连接（DNS / TCP / TLS / 代理握手）的最长时间
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+/// 等响应头的最长时间
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+/// 本地 DNS 解析的最长时间
+const RESOLVE_TIMEOUT: Duration = Duration::from_secs(10);
+/// 两次收到数据之间的最长空档：12 MB 的安装包在慢代理上要下几分钟，
+/// 不能用「整次请求 60 秒」这种总时限把还在动的下载掐掉；只要数据还在流，
+/// 慢也不算失败，彻底不动 30 秒才判超时。
+const READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// 进度上报的最小跨档（百分比）：避免几十 MB 的下载把消息队列刷满
 const PROGRESS_STEP: u64 = 2;
 
@@ -373,7 +381,12 @@ fn agent() -> &'static ureq::Agent {
     static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
     AGENT.get_or_init(|| {
         let mut builder = ureq::Agent::config_builder()
-            .timeout_global(Some(TIMEOUT))
+            // 不给整个请求设总时限：它会把「正在慢慢下载」当成超时。
+            // 连接、响应头、单次读各有预算，卡死 30 秒才失败。
+            .timeout_connect(Some(CONNECT_TIMEOUT))
+            .timeout_resolve(Some(RESOLVE_TIMEOUT))
+            .timeout_recv_response(Some(RESPONSE_TIMEOUT))
+            .timeout_per_read(Some(READ_TIMEOUT))
             // 状态码自己判断，好给用户「服务器返回 HTTP 404」这样的说明
             .http_status_as_error(false)
             .tls_config(

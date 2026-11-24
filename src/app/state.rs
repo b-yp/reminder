@@ -204,11 +204,22 @@ fn install_update(app: AppCtx) {
     // 上次替换没删掉的旧文件在这里清掉：一启动就做，不依赖这次有没有联网
     updater::clean_leftovers();
 
+    // 这个 effect 只读两个「开关」：是否在跑、是否要装。**不要**在这里直接读整个
+    // `Status`：effect 每次重跑都会先取消它上一次运行里创建的定时器，而下载进度是
+    // 「Downloading → Downloading」的连续写入——直接读状态的话，第一条进度消息就会
+    // 把刚挂上的 100ms 排空定时器取消，界面从此停在 0%（下载其实还在后台跑，
+    // 消息全堆在 channel 里没人取）。两个 computed 只在开关真的翻转时才通知。
+    let busy = computed(move || app.update.get().is_busy());
+    let installing = computed(move || matches!(app.update.get(), Status::Installing));
+
     // 只在检查 / 下载时开 100ms 的排空定时器：空闲的挂件不该每秒醒十次
     effect(move || {
-        let status = app.update.get();
+        // 上一次运行挂的定时器已随这次重跑被框架取消，句柄不能再当成「还在跑」
+        if let Some(previous) = pump.with(Option::take) {
+            previous.cancel();
+        }
         // 用户点了「重启并更新」：现在换文件，换完让应用自己拉起新版本
-        if matches!(status, Status::Installing) {
+        if installing.get() {
             match staged.try_with(|slot| slot.take()).flatten() {
                 Some(pending) => match updater::install_now(pending) {
                     Ok(()) => nsh_core::element::desktop::restart(),
@@ -219,50 +230,45 @@ fn install_update(app: AppCtx) {
             }
             return;
         }
-        let busy = status.is_busy();
-        let running = pump.with(|slot| slot.is_some());
-        if busy && !running {
-            pump.replace(Some(set_interval(Duration::from_millis(100), move || {
-                events.with(|slot| {
-                    let Some(events) = slot.as_ref() else {
-                        return;
-                    };
-                    loop {
-                        match events.try_recv() {
-                            Ok(updater::Event::Checked(result)) => match result {
-                                Ok(Some(found)) => app.update.set(Status::Available(found)),
-                                Ok(None) => app.update.set(Status::UpToDate),
-                                Err(message) => app.update.set(Status::Failed(message)),
-                            },
-                            Ok(updater::Event::Progress { received, total }) => {
-                                // 用户中途又点了一次检查时，旧的下载进度不该覆盖新状态
-                                if let Status::Downloading { version, .. } = app.update.get() {
-                                    app.update.set(Status::Downloading {
-                                        version,
-                                        received,
-                                        total,
-                                    });
-                                }
-                            }
-                            Ok(updater::Event::Staged(result)) => match result {
-                                Ok((new, version)) => {
-                                    staged.replace(Some(new));
-                                    app.update.set(Status::Ready { version });
-                                }
-                                Err(message) => app.update.set(Status::Failed(message)),
-                            },
-                            Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                            // 管道断了（理论上只在进程退出时）：不必空转
-                            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
-                        }
-                    }
-                });
-            })));
-        } else if !busy && running
-            && let Some(timer) = pump.with(|slot| slot.take())
-        {
-            timer.cancel();
+        if !busy.get() {
+            return;
         }
+        pump.replace(Some(set_interval(Duration::from_millis(100), move || {
+            events.with(|slot| {
+                let Some(events) = slot.as_ref() else {
+                    return;
+                };
+                loop {
+                    match events.try_recv() {
+                        Ok(updater::Event::Checked(result)) => match result {
+                            Ok(Some(found)) => app.update.set(Status::Available(found)),
+                            Ok(None) => app.update.set(Status::UpToDate),
+                            Err(message) => app.update.set(Status::Failed(message)),
+                        },
+                        Ok(updater::Event::Progress { received, total }) => {
+                            // 用户中途又点了一次检查时，旧的下载进度不该覆盖新状态
+                            if let Status::Downloading { version, .. } = app.update.get() {
+                                app.update.set(Status::Downloading {
+                                    version,
+                                    received,
+                                    total,
+                                });
+                            }
+                        }
+                        Ok(updater::Event::Staged(result)) => match result {
+                            Ok((new, version)) => {
+                                staged.replace(Some(new));
+                                app.update.set(Status::Ready { version });
+                            }
+                            Err(message) => app.update.set(Status::Failed(message)),
+                        },
+                        Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                        // 管道断了（理论上只在进程退出时）：不必空转
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+                    }
+                }
+            });
+        })));
     });
 
     // 启动后静默查一次：只把结果留在状态里，不弹窗、不抢焦点
