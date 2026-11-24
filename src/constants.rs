@@ -53,6 +53,9 @@ pub(crate) const ICON_CHOICES_LIFE: &[(&str, &str)] = &[
 /// 删除后留给「撤销」的秒数
 pub(crate) const UNDO_SECONDS: u64 = 5;
 
+/// 撤销条退场动画的时长（与 `ui::tokens::motion::BASE` 一致）：内容留在树上播完再卸载
+pub(crate) const TOAST_EXIT_MS: u64 = 240;
+
 /// 图标主题第二排：专注与日程
 pub(crate) const ICON_CHOICES_FOCUS: &[(&str, &str)] = &[
     ("clock", "专注"),

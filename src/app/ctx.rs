@@ -9,7 +9,9 @@ use nsh_core::desktop::{WindowFrame, WindowPlacement};
 use nsh_core::element::desktop;
 use nsh_core::prelude::*;
 
-use crate::constants::{MINI_HEIGHT, MINI_WIDTH, UNDO_SECONDS, WINDOW_HEIGHT, WINDOW_WIDTH};
+use crate::constants::{
+    MINI_HEIGHT, MINI_WIDTH, TOAST_EXIT_MS, UNDO_SECONDS, WINDOW_HEIGHT, WINDOW_WIDTH,
+};
 use crate::hotkey::{self, HotkeyStatus};
 use crate::localtime;
 use crate::model::{ReminderItem, undo_restore_item};
@@ -52,6 +54,10 @@ pub struct AppCtx {
     pub add_reset: Signal<u64>,
     /// 删除后的撤销窗口：同时只保留一条，新的删除会让上一条直接转正。
     pub pending_delete: Signal<Option<PendingDelete>>,
+    /// 撤销条正在退场：内容还在，播完 `ending` 动画再卸载。
+    pub toast_leaving: Signal<bool>,
+    /// 退场序号：新的删除会让上一次还没跑完的退场回调失效。
+    toast_leave_seq: Signal<u64>,
     /// 鼠标是否悬停在撤销 Toast 上（悬停时暂停倒计时）。
     pub is_toast_hovered: Signal<bool>,
     /// 每秒推进的时钟，驱动撤销条上的倒计时。
@@ -90,6 +96,8 @@ impl AppCtx {
             show_settings: signal(false),
             add_reset: signal(0u64),
             pending_delete: signal(Option::<PendingDelete>::None),
+            toast_leaving: signal(false),
+            toast_leave_seq: signal(0u64),
             is_toast_hovered: signal(false),
             clock: signal(localtime::unix_now()),
             update: signal(update),
@@ -130,6 +138,7 @@ impl AppCtx {
     /// 删除：立刻从列表移除并落盘，把副本交给底部撤销条。
     pub fn delete(&self, id: u64) {
         let mut removed = None;
+        crate::ui::animate_rows();
         self.items.update(|list| {
             if let Some(pos) = list.iter().position(|x| x.id == id) {
                 let prev_id = if pos > 0 {
@@ -148,6 +157,9 @@ impl AppCtx {
         });
         if let Some((prev_id, next_id, item)) = removed {
             self.is_toast_hovered.set(false);
+            // 上一条撤销条还没退场完就被新的删除顶掉：让旧回调失效
+            self.toast_leave_seq.update(|seq| *seq = seq.wrapping_add(1));
+            self.toast_leaving.set(false);
             self.pending_delete.set(Some(PendingDelete {
                 item,
                 prev_id,
@@ -158,22 +170,43 @@ impl AppCtx {
         }
     }
 
-    /// 撤销：按原相对位置插回并重新落盘。
+    /// 撤销：按原相对位置插回并重新落盘，然后让撤销条退场。
     pub fn undo(&self) {
         if let Some(pending) = self.pending_delete.get() {
+            crate::ui::animate_rows();
             self.items.update(|list| {
                 undo_restore_item(list, pending.item.clone(), pending.prev_id, pending.next_id);
             });
-            self.is_toast_hovered.set(false);
-            self.pending_delete.set(None);
             self.save();
+            self.leave_toast();
         }
     }
 
-    /// 手动关闭 / 滑走撤销 Toast。
+    /// 手动关闭 / 滑走撤销 Toast：先播退场动画，再卸载。
     pub fn dismiss_toast(&self) {
+        self.leave_toast();
+    }
+
+    /// 撤销条退场：内容留在树上播完 `ending`（`motion::BASE`），到点再清空。
+    /// 序号保证「退场途中又删了一条」时，旧回调不会把新的一条提前清掉。
+    pub(super) fn leave_toast(&self) {
+        if self.pending_delete.get().is_none() {
+            return;
+        }
+        let seq = self.toast_leave_seq.get().wrapping_add(1);
+        self.toast_leave_seq.set(seq);
         self.is_toast_hovered.set(false);
-        self.pending_delete.set(None);
+        self.toast_leaving.set(true);
+        let app = *self;
+        set_timeout(
+            std::time::Duration::from_millis(TOAST_EXIT_MS),
+            move || {
+                if app.toast_leave_seq.get() == seq {
+                    app.pending_delete.set(None);
+                    app.toast_leaving.set(false);
+                }
+            },
+        );
     }
 
     /// 展开「新建提醒」抽屉（收起设置抽屉，并强制复位草稿）。

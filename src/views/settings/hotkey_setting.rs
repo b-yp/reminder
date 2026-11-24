@@ -9,6 +9,7 @@ use crate::hotkey::{self, HotkeyStatus};
 use crate::icons;
 use crate::theme_mode::{ACCENT_DANGER_FG, ACCENT_GOLD_STRONG};
 use crate::ui;
+use crate::ui::tokens::{font, radius};
 
 /// 全局热键设置区：键帽提示当前组合键、开关控制是否监听、状态徽章说明注册结果，
 /// 「换一组」在候选组合键间轮换（组合键被其他应用占用时用它换一个）
@@ -45,7 +46,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                         ))
                         .child(
                             text("全局热键")
-                                .text_size(px(11.5))
+                                .text_size(px(font::TITLE))
                                 .text_color(move || theme().foreground),
                         ),
                 )
@@ -85,13 +86,13 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                 view()
                                     .px(px(4.0))
                                     .py(px(1.0))
-                                    .rounded(px(3.0))
+                                    .rounded(px(radius::SM))
                                     .bg(move || theme().secondary)
                                     .border_1()
                                     .border_color(move || theme().border)
                                     .child(
                                         text(move || cap.get())
-                                            .text_size(px(10.0))
+                                            .text_size(px(font::CAPTION))
                                             .text_color(move || theme().muted_foreground),
                                     )
                             },
@@ -115,7 +116,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                 .gap(px(6.0))
                 .child(
                     text(move || hotkey_status.get().hint())
-                        .text_size(px(10.5))
+                        .text_size(px(font::CAPTION))
                         .text_color(move || {
                             if hotkey_status.get().is_error() {
                                 ACCENT_DANGER_FG

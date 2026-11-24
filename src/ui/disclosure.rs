@@ -4,7 +4,8 @@
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
 
-use super::tokens::{font, radius, size};
+use super::focus::focus_ring;
+use super::tokens::{font, motion, radius};
 use crate::icons;
 use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_STRONG};
 
@@ -38,8 +39,10 @@ pub fn disclosure_row(
         })
         .hover(move |s| s.bg(move || theme().muted))
         .active(|s| s.opacity(0.9))
-        .focus_visible(|s| s.outline(px(size::FOCUS_RING)).outline_color(move || theme().ring))
+        .focus_visible(focus_ring)
         .transition_colors()
+        .transition_transform()
+        .duration(move || if reduce_motion() { 0.0_f32 } else { motion::FAST })
         .on_press(move || on_press())
         .child(
             view()

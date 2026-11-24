@@ -73,7 +73,7 @@ pub fn App() -> impl IntoElement {
     let root = root
         .border_1()
         .border_color(move || theme().border)
-        .rounded(px(12.0));
+        .rounded(px(crate::ui::tokens::radius::MAX));
 
     root.child(
         when(move || app.is_mini.get(), move || views::mini::render(app))

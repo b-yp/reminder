@@ -135,7 +135,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                         ))
                         .child(
                             text("应用更新")
-                                .text_size(px(font::BODY))
+                                .text_size(px(font::TITLE))
                                 .text_color(move || theme().foreground),
                         )
                         .child(
@@ -185,7 +185,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                 .child(
                     view().flex_1().child(
                         text(move || hint.get())
-                            .text_size(px(font::CAPTION))
+                            .text_size(px(font::LABEL))
                             .text_color(move || hint_color(&status.get())),
                     ),
                 ),

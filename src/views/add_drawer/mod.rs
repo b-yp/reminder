@@ -2,7 +2,6 @@
 //! 循环周期与每天定点两套表单，以及图标主题选择。
 
 use nsh_base::{collapsible, theme};
-use nsh_core::element::input;
 use nsh_core::prelude::*;
 
 use crate::app::AppCtx;
@@ -15,6 +14,7 @@ use crate::model::{ReminderItem, Schedule, insert_item_at_top};
 use crate::presets::{DAILY_PRESETS, INTERVAL_PRESETS};
 use crate::theme_mode::ACCENT_DANGER_FG;
 use crate::ui;
+use crate::ui::tokens::{font, radius, space};
 use crate::views::presets;
 
 mod fields;
@@ -94,14 +94,14 @@ pub fn render(app: AppCtx) -> impl IntoElement {
     collapsible().open(show).reveal(true).content(
         view()
             .window_drag(false)
-            .p(px(8.0))
-            .mb(px(4.0))
-            .rounded(px(8.0))
+            .p(px(space::GAP))
+            .mb(px(space::TIGHT))
+            .rounded(px(radius::XL))
             .bg(move || theme().muted.opacity(0.40))
             .border_1()
             .border_color(move || theme().border)
             .flex_col()
-            .gap(px(6.0))
+            .gap(px(space::SNUG))
             // 顶部分段选择：【常用推荐】与【自定义新提醒】
             .child(ui::choice_group(
                 [
@@ -131,7 +131,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                         view()
                             .w_full()
                             .p(px(6.0))
-                            .rounded(px(6.0))
+                            .rounded(px(radius::LG))
                             .bg(move || theme().card)
                             .border_1()
                             .border_color(move || theme().border)
@@ -148,52 +148,34 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                 .otherwise(move || {
                     view()
                         .w_full()
-                        .p(px(8.0))
-                        .rounded(px(6.0))
+                        .p(px(space::GAP))
+                        .rounded(px(radius::LG))
                         .bg(move || theme().card)
                         .border_1()
                         .border_color(move || theme().border)
                         .flex_col()
-                        .gap(px(6.0))
+                        .gap(px(space::SNUG))
                         // Field 1: 提醒名称
                         .child(
                             view()
                                 .flex_col()
                                 .gap(px(3.0))
                                 .child(
-                                    view()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .child(
-                                            text("提醒事项名称")
-                                                .text_size(px(11.0))
-                                                .text_color(move || theme().muted_foreground),
-                                        )
-                                        .child(
-                                            text(move || draft.error.get().unwrap_or_default())
-                                                .text_size(px(10.5))
-                                                .text_color(move || ACCENT_DANGER_FG),
-                                        ),
+                                    text("提醒事项名称")
+                                        .text_size(px(font::LABEL))
+                                        .text_color(move || theme().muted_foreground),
                                 )
                                 .child(
-                                    input()
-                                        .test_id("custom-name")
-                                        .placeholder("如：站姿切换、滴眼药水、工位通风")
-                                        .value(move || draft.name.get())
-                                        .on_change(move |s: &str| {
-                                            draft.name.set(s.to_string());
+                                    view().w_full().child(ui::text_field(
+                                        "提醒事项名称",
+                                        "custom-name",
+                                        "如：站姿切换、滴眼药水、工位通风",
+                                        move || draft.name.get(),
+                                        move |text: &str| {
+                                            draft.name.set(text.to_string());
                                             draft.error.set(None);
-                                        })
-                                        .w_full()
-                                        .h(px(25.0))
-                                        .px(px(8.0))
-                                        .rounded(px(4.0))
-                                        .bg(move || theme().background)
-                                        .border_1()
-                                        .border_color(move || theme().input)
-                                        .text_size(px(11.0))
-                                        .text_color(move || theme().foreground),
+                                        },
+                                    )),
                                 ),
                         )
                         // Field 2: 提醒方式（循环周期 / 每天定点）+ 具体时刻
@@ -208,7 +190,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                         .justify_between()
                                         .child(
                                             text("提醒方式")
-                                                .text_size(px(11.0))
+                                                .text_size(px(font::LABEL))
                                                 .text_color(move || theme().muted_foreground),
                                         )
                                         .child(
@@ -253,7 +235,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                 .gap(px(3.0))
                                 .child(
                                     text("图标主题")
-                                        .text_size(px(11.0))
+                                        .text_size(px(font::LABEL))
                                         .text_color(move || theme().muted_foreground),
                                 )
                                 // 16 个图标 = 一个 toggle 组，两排铺开
@@ -288,6 +270,16 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                     ),
                                 ])),
                         )
+                        // 表单错误：紧挨提交按钮，说明「刚才那一下为什么没成」；
+                        // 不再挂在名称标签右侧冒充名称的错误。
+                        .child(when(
+                            move || draft.error.get().is_some(),
+                            move || {
+                                text(move || draft.error.get().unwrap_or_default())
+                                    .text_size(px(font::LABEL))
+                                    .text_color(move || ACCENT_DANGER_FG)
+                            },
+                        ))
                         // Field 4: 底部操作栏
                         .child(
                             view()
@@ -370,6 +362,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                             }
                                         };
                                         items.update(|list| {
+                                            ui::animate_rows();
                                             insert_item_at_top(list, item);
                                         });
                                         on_save();

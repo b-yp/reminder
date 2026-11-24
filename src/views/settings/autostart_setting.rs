@@ -9,6 +9,7 @@ use crate::autostart;
 use crate::icons;
 use crate::theme_mode::{ACCENT_DANGER_FG, ACCENT_GOLD_STRONG};
 use crate::ui;
+use crate::ui::tokens::font;
 
 /// 开机自启设置区：开关直接写系统启动项（Windows 注册表 Run 项 / macOS LaunchAgent /
 /// Linux XDG autostart），状态徽章以系统回读结果为准；写入被拒绝时开关退回真实状态并给出原因
@@ -46,7 +47,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                         .child(icons::icon_svg(icons::ICON_POWER, 12.0, ACCENT_GOLD_STRONG))
                         .child(
                             text("开机自启")
-                                .text_size(px(11.5))
+                                .text_size(px(font::TITLE))
                                 .text_color(move || theme().foreground),
                         ),
                 )
@@ -78,7 +79,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                     text(move || {
                         autostart::hint(current_state(), autostart_error.get().as_deref())
                     })
-                    .text_size(px(10.5))
+                    .text_size(px(font::CAPTION))
                     .text_color(move || {
                         if current_state().is_error() {
                             ACCENT_DANGER_FG

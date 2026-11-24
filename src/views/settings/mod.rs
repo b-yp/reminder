@@ -11,6 +11,7 @@ use crate::app::AppCtx;
 use crate::icons;
 use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_BG, ACCENT_GOLD_STRONG, ThemeMode};
 use crate::ui;
+use crate::ui::tokens::{font, radius, space};
 use crate::window::{MIN_OPACITY, clamp_opacity};
 
 /// 偏好设置抽屉（点击齿轮展开，支持外观主题切换、窗口不透明度调节、全局热键与开机自启）
@@ -24,19 +25,19 @@ pub fn render(app: AppCtx) -> impl IntoElement {
     collapsible().open(show).reveal(true).content(
         view()
             .window_drag(false)
-            .p(px(8.0))
-            .mb(px(4.0))
-            .rounded(px(8.0))
+            .p(px(space::GAP))
+            .mb(px(space::TIGHT))
+            .rounded(px(radius::XL))
             .bg(move || theme().muted.opacity(0.40))
             .border_1()
             .border_color(move || theme().border)
             .flex_col()
-            .gap(px(6.0))
+            .gap(px(space::SNUG))
             // 1. 外观主题切换控制区 (浅色模式 / 深色模式 / 跟随系统)
             .child(
                 view()
                     .flex_col()
-                    .gap(px(4.0))
+                    .gap(px(space::TIGHT))
                     .child(
                         view()
                             .flex_row()
@@ -46,7 +47,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                 view()
                                     .flex_row()
                                     .items_center()
-                                    .gap(px(6.0))
+                                    .gap(px(space::SNUG))
                                     .child(icons::dynamic_icon_svg(
                                         move || match theme_mode.get() {
                                             ThemeMode::Light => icons::ICON_SUN,
@@ -58,7 +59,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                     ))
                                     .child(
                                         text("外观主题")
-                                            .text_size(px(11.5))
+                                            .text_size(px(font::TITLE))
                                             .text_color(move || theme().foreground),
                                     ),
                             )
@@ -66,11 +67,11 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                 view()
                                     .px(px(6.0))
                                     .py(px(2.0))
-                                    .rounded(px(4.0))
+                                    .rounded(px(radius::MD))
                                     .bg(ACCENT_GOLD_BG)
                                     .child(
                                         text(move || theme_mode.get().label())
-                                            .text_size(px(10.5))
+                                            .text_size(px(font::CAPTION))
                                             .text_color(ACCENT_GOLD_STRONG),
                                     ),
                             ),
@@ -101,7 +102,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
             .child(
                 view()
                     .w_full()
-                    .my(px(2.0))
+                    .my(px(space::HAIR))
                     .border_t_1()
                     .border_color(move || theme().border),
             )
@@ -109,7 +110,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
             .child(
                 view()
                     .flex_col()
-                    .gap(px(4.0))
+                    .gap(px(space::TIGHT))
                     .child(
                         view()
                             .flex_row()
@@ -119,7 +120,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                 view()
                                     .flex_row()
                                     .items_center()
-                                    .gap(px(6.0))
+                                    .gap(px(space::SNUG))
                                     .child(icons::icon_svg(
                                         icons::ICON_OPACITY,
                                         12.0,
@@ -127,7 +128,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                     ))
                                     .child(
                                         text("窗口不透明度")
-                                            .text_size(px(11.5))
+                                            .text_size(px(font::TITLE))
                                             .text_color(move || theme().foreground),
                                     ),
                             )
@@ -135,11 +136,11 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                 view()
                                     .px(px(6.0))
                                     .py(px(2.0))
-                                    .rounded(px(4.0))
+                                    .rounded(px(radius::MD))
                                     .bg(ACCENT_GOLD_BG)
                                     .child(
                                         text(move || format!("{:.0}%", opacity.get() * 100.0))
-                                            .text_size(px(11.0))
+                                            .text_size(px(font::BODY))
                                             .text_color(ACCENT_GOLD_STRONG),
                                     ),
                             ),
@@ -176,7 +177,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
             .child(
                 view()
                     .w_full()
-                    .my(px(2.0))
+                    .my(px(space::HAIR))
                     .border_t_1()
                     .border_color(move || theme().border),
             )
@@ -186,7 +187,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
             .child(
                 view()
                     .w_full()
-                    .my(px(2.0))
+                    .my(px(space::HAIR))
                     .border_t_1()
                     .border_color(move || theme().border),
             )
@@ -196,7 +197,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
             .child(
                 view()
                     .w_full()
-                    .my(px(2.0))
+                    .my(px(space::HAIR))
                     .border_t_1()
                     .border_color(move || theme().border),
             )

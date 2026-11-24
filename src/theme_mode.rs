@@ -58,6 +58,15 @@ pub const OVERDUE_FG: AdaptiveColor = AdaptiveColor::rgb(0xb91c1c, 0xf87171);
 /// 通用危险/错误文字与图标色（用于热键冲突、自启失败、表单校验错误、Danger 徽章）
 /// 语义复用逾期警示色，在白底上实测 6.47:1、在深色暗底上实测 5.47~7.16:1，单点定义始终一致
 pub const ACCENT_DANGER_FG: AdaptiveColor = OVERDUE_FG;
+/// 键盘焦点环：用对比度最高的前景色，不参与品牌金黄，避免和「选中」的金边混成一片。
+/// 浅色 #1c1917 对白底 17.7:1，深色 #fafafa 对深底 18.3:1；WCAG 1.4.11 要求 ≥ 3:1。
+pub const FOCUS_RING: AdaptiveColor = AdaptiveColor::rgb(0x1c1917, 0xfafafa);
+/// 输入框边界：主题自带的 `input`（浅色 #ebebeb）对白底只有 1.26:1，看不出这里能输入。
+/// 这两个值对各自底色都是 3.1:1，满足 WCAG 1.4.11 对控件边界的 3:1 要求。
+pub const FIELD_BORDER: AdaptiveColor = AdaptiveColor::rgb(0x929292, 0x666666);
+/// 开关滑块：两个主题下都是浅色实体。关闭态的轨道是深灰的，滑块若跟着背景色
+/// 就会糊成一片，看不出「这是一颗能滑过去的圆钮」。
+pub const SWITCH_KNOB: AdaptiveColor = AdaptiveColor::rgb(0xffffff, 0xf4f4f5);
 /// 「现在就该处理」的实心绿（逾期打卡）
 pub const ACCENT_NOW_BG: AdaptiveColor = AdaptiveColor::rgb(0x16a34a, 0x15803d);
 /// 「现在就该处理」的绿描边
@@ -111,6 +120,39 @@ mod tests {
         let l2 = hsla_luminance(c2);
         let (lighter, darker) = if l1 > l2 { (l1, l2) } else { (l2, l1) };
         (lighter + 0.05) / (darker + 0.05)
+    }
+
+    /// 焦点环与输入框边界是「控件能不能被看见」的信息，WCAG 1.4.11 要求 ≥ 3:1
+    #[test]
+    fn test_focus_ring_and_field_border_contrast() {
+        let white = AdaptiveColor::rgb(0xffffff, 0xffffff).light;
+        let dark_surface = AdaptiveColor::rgb(0x18181b, 0x18181b).dark;
+
+        let light_focus = token_contrast(FOCUS_RING.light, white);
+        assert!(
+            light_focus >= 3.0,
+            "浅色焦点环对白底需 >= 3:1，实测 {:.2}:1",
+            light_focus
+        );
+        let dark_focus = token_contrast(FOCUS_RING.dark, dark_surface);
+        assert!(
+            dark_focus >= 3.0,
+            "深色焦点环对深底需 >= 3:1，实测 {:.2}:1",
+            dark_focus
+        );
+
+        let light_field = token_contrast(FIELD_BORDER.light, white);
+        assert!(
+            light_field >= 3.0,
+            "浅色输入框边界对白底需 >= 3:1，实测 {:.2}:1",
+            light_field
+        );
+        let dark_field = token_contrast(FIELD_BORDER.dark, dark_surface);
+        assert!(
+            dark_field >= 3.0,
+            "深色输入框边界对深底需 >= 3:1，实测 {:.2}:1",
+            dark_field
+        );
     }
 
     #[test]
