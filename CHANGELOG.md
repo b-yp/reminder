@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/b-yp/reminder/compare/v0.2.0...v0.3.0) (2026-11-24)
+
+
+### Features
+
+* unify tokens, row layout and motion feedback ([73f03c6](https://github.com/b-yp/reminder/commit/73f03c6265f1e7c3e6daa9c2963259a0992cd86b))
+* unify tokens, row layout and motion feedback ([ca14318](https://github.com/b-yp/reminder/commit/ca1431846fdb6984f2b27a8b5b459836edb2b9af))
+
 ## [0.2.0](https://github.com/b-yp/reminder/compare/v0.1.0...v0.2.0) (2026-11-23)
 
 
