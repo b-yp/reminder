@@ -258,10 +258,23 @@ fn install_update(app: AppCtx) {
         })));
     });
 
-    // 启动后静默查一次：只把结果留在状态里，不弹窗、不抢焦点
+    // 启动后静默查一次，之后每 24 小时静默查一次：只把结果留在状态里，不弹窗、不抢焦点
+    const STARTUP_CHECK_DELAY: Duration = Duration::from_secs(15);
+    const PERIODIC_CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+
     let startup = stored(None::<Spawned<()>>);
-    startup.replace(Some(set_timeout(Duration::from_secs(15), move || {
+    startup.replace(Some(set_timeout(STARTUP_CHECK_DELAY, move || {
         if matches!(app.update.get(), Status::Idle) {
+            app.check_update();
+        }
+    })));
+
+    let periodic = stored(None::<Spawned<()>>);
+    periodic.replace(Some(set_interval(PERIODIC_CHECK_INTERVAL, move || {
+        if matches!(
+            app.update.get(),
+            Status::Idle | Status::UpToDate | Status::Failed(_)
+        ) {
             app.check_update();
         }
     })));
