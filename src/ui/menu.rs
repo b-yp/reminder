@@ -87,7 +87,7 @@ fn item(
 mod tests {
     use super::*;
     use nsh_core::platform::{Idiom, Os};
-    use nsh_engine::{EngineConfig, Points, Root, Size};
+    use nsh_engine::{EngineConfig, Points, Size};
     use nsh_testing::Headless;
 
     #[component]
@@ -102,7 +102,7 @@ mod tests {
     fn test_menu_keyboard_tab_open_escape_focus_restore() {
         let mut config = EngineConfig {
             viewport: Size::new(Points(320.0), Points(200.0)),
-            ..EngineConfig::new(Root::of::<MenuHost>())
+            ..EngineConfig::new(nsh_testing::windowed_root::<MenuHost>())
         };
         config.environment.os = Os::MacOs;
         config.environment.idiom = Idiom::Desktop;

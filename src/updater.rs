@@ -223,7 +223,7 @@ pub fn start_download(found: Found) {
 ///
 /// 失败只记日志：此刻界面已经没了，应用保持原样退出，下次启动还是旧版本。
 pub fn install_at_quit(staged: Staged) -> Result<(), String> {
-    staged.finish().map_err(|error| error.to_string())
+    staged.finish().map(|_| ()).map_err(|error| error.to_string())
 }
 
 /// 现在就把已经摆好的新版本换上去，调用方随后重启应用。
@@ -232,7 +232,7 @@ pub fn install_at_quit(staged: Staged) -> Result<(), String> {
 /// 重启要找的是用户认识的那个路径（与 `nsh/updater` 的 `installAndRestart` 同一步）。
 pub fn install_now(staged: Staged) -> Result<(), String> {
     nsh_core::restart::remember_program();
-    staged.finish().map_err(|error| error.to_string())
+    staged.finish().map(|_| ()).map_err(|error| error.to_string())
 }
 
 /// 清掉上次替换没能删掉的旧文件。
@@ -589,7 +589,12 @@ mod tests {
         config.github = Some("b-yp/reminder".to_owned());
 
         let other = br#"{"id":"cc.baiyapeng.other","version":"9.9.9","platforms":{}}"#;
-        assert!(config.check(other, None, "windows-x86_64").is_err());
+        assert!(
+            config
+                .check(other, None, "windows-x86_64")
+                .unwrap()
+                .is_none()
+        );
 
         let older = br#"{"id":"cc.baiyapeng.reminder","version":"0.1.9","platforms":{"windows-x86_64":{"url":"https://example.com/a.zip","sha256":"00"}}}"#;
         assert!(

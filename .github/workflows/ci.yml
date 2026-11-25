@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NSH_VERSION: 0.6.0
+  NSH_VERSION: 0.7.0
 
 jobs:
   # macOS / Windows 各做一次类型检查：本仓库大量使用 #[cfg(target_os)]，

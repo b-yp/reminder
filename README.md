@@ -8,7 +8,7 @@
   <p>
     <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-18181b?style=flat-square">
     <img alt="rust" src="https://img.shields.io/badge/Rust-2024-b45309?style=flat-square&logo=rust&logoColor=ffffff">
-    <img alt="nsh" src="https://img.shields.io/badge/NSH-0.6.0-92400e?style=flat-square">
+    <img alt="nsh" src="https://img.shields.io/badge/NSH-0.7.0-92400e?style=flat-square">
   </p>
 </div>
 
@@ -34,7 +34,7 @@
 
 ## 快速开始
 
-需要 [Rust](https://rustup.rs/) 与 `nsh` 0.6.0（安装方式见 [NSH 文档](https://nsh.dev/docs/installation)）。macOS 需要 Xcode Command Line Tools，Windows 需要 MSVC 生成工具，Linux 需要 GTK 4 开发库。
+需要 [Rust](https://rustup.rs/) 与 `nsh` 0.7.0（安装方式见 [NSH 文档](https://nsh.dev/docs/installation)）。macOS 需要 Xcode Command Line Tools，Windows 需要 MSVC 生成工具，Linux 需要 GTK 4 开发库。
 
 ```sh
 git clone https://github.com/b-yp/reminder.git

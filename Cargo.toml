@@ -7,10 +7,10 @@ publish = false
 [workspace]
 
 [dependencies]
-nsh-core = "0.6.0"
-nsh-base = "0.6.0"
+nsh-core = "0.7.0"
+nsh-base = "0.7.0"
 # 自更新：清单与压缩包的校验、替换已安装的应用（更新源在 nsh.json 里，不在代码里）
-nsh-updater = "0.6.0"
+nsh-updater = "0.7.0"
 # 取清单与压缩包：与 nsh-core 用同一个 TLS 栈（系统证书）与版本，不引入新的 TLS 实现
 ureq = { version = "3.1", features = ["platform-verifier"] }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
@@ -22,16 +22,16 @@ serde_json = "1.0"
 libc = "0.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { version = "0.6.0", default-features = false }
+nsh-platform-linux = { version = "0.7.0", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-platform-macos = { version = "0.6.0", default-features = false }
+nsh-platform-macos = { version = "0.7.0", default-features = false }
 dispatch2 = "0.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nsh-platform-windows = { version = "0.6.0", default-features = false }
+nsh-platform-windows = { version = "0.7.0", default-features = false }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Registry"] }
 
 [dev-dependencies]
-nsh-engine = { version = "0.6.0", default-features = false }
-nsh-testing = { version = "0.6.0", default-features = false }
+nsh-engine = { version = "0.7.0", default-features = false }
+nsh-testing = { version = "0.7.0", default-features = false }
