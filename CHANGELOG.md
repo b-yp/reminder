@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/b-yp/reminder/compare/v0.4.0...v0.5.0) (2026-11-25)
+
+
+### Features
+
+* add 24h periodic check and header update badge ([b8027c6](https://github.com/b-yp/reminder/commit/b8027c615cf57e2a8dd16d512dfa5463ef09763d))
+* add 24h periodic check and header update badge ([e11cf34](https://github.com/b-yp/reminder/commit/e11cf3474a9089267eeae1427d05b409ef7b95e5))
+
 ## [0.4.0](https://github.com/b-yp/reminder/compare/v0.3.1...v0.4.0) (2026-11-24)
 
 
