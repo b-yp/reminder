@@ -1,8 +1,10 @@
 name: CI
 
 on:
+  # 只在合入 master 后跑 push 检查；dev 分支通过下面的 pull_request 触发，
+  # 避免从 dev 向 master 提 PR 时同一个提交同时触发 push 和 pull_request 跑两遍。
   push:
-    branches: [dev, master]
+    branches: [master]
   pull_request:
     branches: [dev, master]
 
@@ -19,6 +21,10 @@ jobs:
   # ubuntu 不在这里重复跑，下面的 test job 会完整编译并跑测试。
   check:
     name: Check (${{ matrix.os }})
+    if: >-
+      !startsWith(github.head_ref, 'release-please--') &&
+      !startsWith(github.event.head_commit.message, 'chore(master): release ') &&
+      !contains(github.event.head_commit.message, 'release-please--')
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +49,10 @@ jobs:
   # 只用 cargo test 会漏掉后者。
   test:
     name: Test (cargo + App.test.tsx)
+    if: >-
+      !startsWith(github.head_ref, 'release-please--') &&
+      !startsWith(github.event.head_commit.message, 'chore(master): release ') &&
+      !contains(github.event.head_commit.message, 'release-please--')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
