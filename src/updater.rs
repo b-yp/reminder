@@ -129,6 +129,11 @@ impl Status {
         )
     }
 
+    /// 是否有值得在主界面角标提示的更新状态（发现新版本，或已下载待重启）。
+    pub fn has_notice(&self) -> bool {
+        matches!(self, Status::Available(_) | Status::Ready { .. })
+    }
+
     /// 下载进度（0.0–1.0）；不知道总大小时给 0（界面只显示已下载的字节数）
     pub fn progress(&self) -> f32 {
         match self {
@@ -481,6 +486,32 @@ mod tests {
             Status::Failed("x".to_owned()),
         ] {
             assert!(!idle.is_busy(), "{idle:?} 不该挡住新的操作");
+        }
+    }
+
+    #[test]
+    fn only_available_and_ready_raise_a_notice() {
+        assert!(Status::Available(found("")).has_notice());
+        assert!(
+            Status::Ready {
+                version: "0.3.0".to_owned(),
+            }
+            .has_notice()
+        );
+        for quiet in [
+            Status::Unavailable,
+            Status::Idle,
+            Status::Checking,
+            Status::UpToDate,
+            Status::Downloading {
+                version: "0.3.0".to_owned(),
+                received: 1,
+                total: Some(2),
+            },
+            Status::Installing,
+            Status::Failed("x".to_owned()),
+        ] {
+            assert!(!quiet.has_notice(), "{quiet:?} 不该在顶栏亮角标");
         }
     }
 

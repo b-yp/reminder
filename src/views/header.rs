@@ -7,9 +7,10 @@ use nsh_core::prelude::*;
 use crate::app::AppCtx;
 use crate::constants::LOGO;
 use crate::icons;
-use crate::theme_mode::ACCENT_GOLD_STRONG;
+use crate::theme_mode::{ACCENT_GOLD, ACCENT_GOLD_STRONG};
 use crate::ui;
 use crate::ui::tokens::{font, radius, space};
+use crate::updater::Status as UpdateStatus;
 use crate::window::hide_to_tray;
 
 /// 顶部 Header：左侧金黄微标与标题，右侧挂件操作按钮组（新建、暂停、偏好设置、收起为胶囊、收进托盘）。
@@ -21,6 +22,7 @@ pub fn render(app: AppCtx) -> impl IntoElement {
         is_all_paused,
         show_add,
         show_settings,
+        update,
         ..
     } = app;
     let on_enter_mini = move || app.enter_mini();
@@ -109,10 +111,11 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                             }
                         })),
                 )
-                // 偏好设置
+                // 偏好设置（发现新版本或待重启更新时，右上角亮起金色角标）
                 .child(
                     view()
                         .test_id("settings-toggle")
+                        .relative()
                         .child(ui::icon_button(
                             "偏好设置",
                             ui::IconTone::Ghost,
@@ -131,7 +134,28 @@ pub fn render(app: AppCtx) -> impl IntoElement {
                                 },
                             ),
                         ))
-                        .tooltip(ui::tooltip_bubble("偏好设置")),
+                        .child(when(
+                            move || update.get().has_notice(),
+                            move || {
+                                view()
+                                    .test_id("update-badge")
+                                    .absolute()
+                                    .top(px(2.0))
+                                    .right(px(2.0))
+                                    .w(px(7.0))
+                                    .h(px(7.0))
+                                    .rounded(px(99.0))
+                                    .bg(ACCENT_GOLD)
+                                    .border_1()
+                                    .border_color(move || theme().background)
+                                    .pointer_events(PointerEvents::None)
+                            },
+                        ))
+                        .tooltip(ui::dynamic_tooltip_bubble(move || match update.get() {
+                            UpdateStatus::Available(_) => "偏好设置 · 发现新版本",
+                            UpdateStatus::Ready { .. } => "偏好设置 · 新版本待重启",
+                            _ => "偏好设置",
+                        })),
                 )
                 // 收起为迷你灵动岛胶囊
                 .child(
