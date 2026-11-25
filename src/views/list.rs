@@ -136,14 +136,22 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                             .h(px(36.0)),
                         ),
                 )
-                // 标题与倒计时（包含周期微标，点击周期可快速切换常见时长，到期时红字警示）
+                // 标题（第一行独享完整宽度）与周期/今日统计（第二行，点击周期可快速切换常见时长）
                 .child(
                     view()
                         .flex_1()
                         .min_w(px(0.0))
                         .flex_col()
                         .justify_center()
-                        .gap(px(2.0))
+                        .gap(px(3.0))
+                        .child(
+                            text(move || item_sig.get().name.clone())
+                                .w_full()
+                                .min_w(px(0.0))
+                                .text_size(px(font::TITLE))
+                                .text_color(move || theme().foreground)
+                                .truncate(),
+                        )
                         .child(
                             view()
                                 .w_full()
@@ -152,14 +160,6 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                                 .items_center()
                                 .overflow_hidden()
                                 .gap(px(5.0))
-                                .child(
-                                    text(move || item_sig.get().name.clone())
-                                        .flex_1()
-                                        .min_w(px(0.0))
-                                        .text_size(px(font::TITLE))
-                                        .text_color(move || theme().foreground)
-                                        .truncate(),
-                                )
                                 .child(view().flex_shrink_0().window_drag(false).child(
                                     ui::micro_button(
                                         move || item_sig.get().format_badge(),
@@ -193,33 +193,29 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                                             }
                                         },
                                     ),
-                                )),
-                        )
-                        .child(
-                            view()
-                                .flex_row()
-                                .items_center()
-                                .gap(px(3.0))
-                                .child(when(
-                                    move || item_sig.get().is_expired(),
-                                    move || icons::icon_svg(icons::ICON_ALERT, 11.5, OVERDUE_FG),
                                 ))
-                                .child(
-                                    text(move || item_sig.get().format_remaining())
-                                        .text_size(px(font::BODY))
+                                .child(when(
+                                    move || item_sig.get().today_label(&localtime::now()).is_some(),
+                                    move || {
+                                        text(move || {
+                                            item_sig
+                                                .get()
+                                                .today_label(&localtime::now())
+                                                .map(|label| format!("· {label}"))
+                                                .unwrap_or_default()
+                                        })
+                                        .flex_1()
+                                        .min_w(px(0.0))
+                                        .text_size(px(font::LABEL))
                                         .tabular_nums()
-                                        .text_color(move || {
-                                            if item_sig.get().is_expired() {
-                                                OVERDUE_FG
-                                            } else {
-                                                theme().muted_foreground
-                                            }
-                                        }),
-                                ),
+                                        .text_color(move || theme().muted_foreground)
+                                        .truncate()
+                                    },
+                                )),
                         ),
                 ),
         )
-        // 右半部分：当天统计 + 主行动 [✓] + 低频动作菜单 [⋯]（固定不被压缩）
+        // 右半部分：倒计时/超时 + 主行动 [✓] + 低频动作菜单 [⋯]（固定不被压缩）
         .child(
             view()
                 .window_drag(false)
@@ -227,19 +223,29 @@ fn render_item_row(item_sig: ReadSignal<ReminderItem>, app: AppCtx) -> impl Into
                 .flex_row()
                 .items_center()
                 .gap(px(space::SNUG))
-                // 当天完成次数：固定宽度的车道 + 等宽数字，次数从 9 变 10 时
-                // 右侧的动作按钮不会跟着挪位。
+                // 倒计时/超时状态：紧邻打卡按钮，使用等宽数字避免每秒跳动引起右侧按钮位移
                 .child(
                     view()
-                        .test_id("row-count")
-                        .w(px(54.0))
+                        .test_id("row-time")
                         .flex_row()
+                        .items_center()
                         .justify_end()
+                        .gap(px(3.0))
+                        .child(when(
+                            move || item_sig.get().is_expired(),
+                            move || icons::icon_svg(icons::ICON_ALERT, 11.5, OVERDUE_FG),
+                        ))
                         .child(
-                            text(move || item_sig.get().today_label(&localtime::now()))
+                            text(move || item_sig.get().format_remaining_compact())
                                 .text_size(px(font::BODY))
                                 .tabular_nums()
-                                .text_color(move || theme().muted_foreground),
+                                .text_color(move || {
+                                    if item_sig.get().is_expired() {
+                                        OVERDUE_FG
+                                    } else {
+                                        theme().muted_foreground
+                                    }
+                                }),
                         ),
                 )
                 // 打卡：行内唯一的强调动作。只有「已到期」这一行给金黄，
@@ -307,9 +313,9 @@ mod tests {
 
     #[component]
     fn ShortRowHost() -> impl IntoElement {
-        let item = ReminderItem::new("喝水", "droplet", 1800);
+        let mut item = ReminderItem::new("喝水", "droplet", 1800);
+        item.complete(&localtime::now());
         let item_sig = signal(item);
-        let items = signal(vec![item_sig.get()]);
         view().w(px(320.0)).child(render_item_row(
             item_sig.read_only(),
             AppCtx::new(AppState {
@@ -326,9 +332,9 @@ mod tests {
     #[component]
     fn LongRowHost() -> impl IntoElement {
         assert_eq!(LONG_NAME.chars().count(), 40);
-        let item = ReminderItem::new(LONG_NAME, "droplet", 1800);
+        let mut item = ReminderItem::new(LONG_NAME, "droplet", 1800);
+        item.complete(&localtime::now());
         let item_sig = signal(item);
-        let items = signal(vec![item_sig.get()]);
         view().w(px(320.0)).child(render_item_row(
             item_sig.read_only(),
             AppCtx::new(AppState {
@@ -374,8 +380,12 @@ mod tests {
         // 1. 验证徽标与统计文本在 40 个中文字符超长名称下依然完整显示
         assert!(app_long.screen().shows("30m"), "周期徽标在长文本下必须可见");
         assert!(
-            app_long.screen().shows("今日 0 次"),
+            app_long.screen().shows("· 今日 1 次"),
             "统计文案在长文本下必须可见"
+        );
+        assert!(
+            app_long.screen().shows("30:00"),
+            "倒计时在长文本下必须可见"
         );
 
         let nodes_short = app_short.screen().layout_nodes();
@@ -395,17 +405,12 @@ mod tests {
             "周期徽标 bounds 在长文本下不发生位移和变形"
         );
 
-        // 4. 右侧车道：次数 54 宽（等宽数字 + 右对齐）、打卡与菜单都是 24 的方格
-        let count_long = by_test_id(&nodes_long, "row-count");
+        // 4. 右侧车道：倒计时不位移，打卡与菜单都是 24 的方格
+        let time_long = by_test_id(&nodes_long, "row-time");
         assert_eq!(
-            count_long.bounds,
-            by_test_id(&nodes_short, "row-count").bounds,
-            "统计车道在长文本下不位移"
-        );
-        assert!(
-            (count_long.bounds.size.width.0 - 54.0).abs() < 0.5,
-            "统计车道固定 54 宽，实测 {}",
-            count_long.bounds.size.width.0
+            time_long.bounds,
+            by_test_id(&nodes_short, "row-time").bounds,
+            "倒计时车道在长文本下不位移"
         );
 
         let check_long = by_test_id(&nodes_long, "row-check");

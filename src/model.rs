@@ -193,9 +193,16 @@ impl ReminderItem {
         self.completed_by_day.get(&now.day).copied().unwrap_or(0)
     }
 
-    /// 列表右侧的当天统计文本（如「今日 3 次」）
-    pub fn today_label(&self, now: &LocalNow) -> String {
-        format!("今日 {} 次", self.today_completed(now))
+    /// 列表右侧的当天统计文本：
+    /// - 间隔循环：仅在今日打卡 `>= 1` 次时返回 `Some("今日 N 次")`，0 次时返回 `None`。
+    /// - 每天定点：仅在今日实际完成打卡时返回 `Some("已完成")`，未打卡时返回 `None`。
+    pub fn today_label(&self, now: &LocalNow) -> Option<String> {
+        let count = self.today_completed(now);
+        if self.is_daily() {
+            (count > 0 && self.is_done_today(now)).then(|| "已完成".to_string())
+        } else {
+            (count > 0).then(|| format!("今日 {count} 次"))
+        }
     }
 
     /// 每日定点的（时, 分）
@@ -489,6 +496,19 @@ impl ReminderItem {
         }
     }
 
+    /// 紧凑版剩余/超时时间（主列表右侧列使用，配合警告图标省去「超时」前缀）
+    pub fn format_remaining_compact(&self) -> String {
+        if self.remaining_secs == 0 {
+            if self.overdue_secs == 0 {
+                "到时间啦!".to_string()
+            } else {
+                format_clock(self.overdue_secs)
+            }
+        } else {
+            format_clock(self.remaining_secs)
+        }
+    }
+
     /// 进度比例（0.0 ~ 1.0）
     pub fn progress_ratio(&self) -> f32 {
         let total = self.interval_secs.max(1) as f32;
@@ -680,11 +700,14 @@ mod tests {
         assert_eq!(item.completed_count, 4);
         assert_eq!(item.completed_by_day.get(&20_000), Some(&2));
         assert_eq!(item.completed_by_day.get(&20_001), Some(&2));
-        // 界面只取当天：第一天显示 2 次，第二天显示 2 次，其他日子 0 次
+        // 界面只取当天：第一天显示 2 次，第二天显示 2 次，其他日子 0 次（隐藏不显示）
         assert_eq!(item.today_completed(&local(20_000, NOON)), 2);
-        assert_eq!(item.today_label(&local(20_000, NOON)), "今日 2 次");
+        assert_eq!(
+            item.today_label(&local(20_000, NOON)).as_deref(),
+            Some("今日 2 次")
+        );
         assert_eq!(item.today_completed(&local(20_001, NOON)), 2);
-        assert_eq!(item.today_label(&local(20_002, NOON)), "今日 0 次");
+        assert_eq!(item.today_label(&local(20_002, NOON)), None);
         // 没有打卡的日子不产生记录
         assert_eq!(item.completed_by_day.get(&19_999), None);
     }
@@ -695,6 +718,7 @@ mod tests {
         let mut item = ReminderItem::new_daily("午餐", "apple", 12, 0, &created);
         assert!(item.is_daily());
         assert_eq!(item.format_badge(), "每天 12:00");
+        assert_eq!(item.today_label(&created), None);
         assert_eq!(item.remaining_secs, 2 * 3600);
         assert_eq!(item.format_remaining(), "02:00:00");
 
@@ -713,9 +737,13 @@ mod tests {
         assert_eq!(item.overdue_secs, 75);
         assert_eq!(item.format_remaining(), "超时 01:15");
 
-        // 打卡后进入明天的倒计时，今天不再响
+        // 打卡后进入明天的倒计时，今天不再响，右侧显示「已完成」
         item.complete(&local(20_000, NOON + 120));
         assert_eq!(item.completed_count, 1);
+        assert_eq!(
+            item.today_label(&local(20_000, NOON + 120)).as_deref(),
+            Some("已完成")
+        );
         assert_eq!(item.remaining_secs, u32::from(SECS_PER_DAY) - 120);
         assert!(!item.tick(&local(20_000, NOON + 130)));
         assert!(!item.is_expired());
